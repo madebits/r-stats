@@ -1,0 +1,769 @@
+---
+title: "Notes on Statistics"
+output:
+  html_document:
+    pandoc_args: [
+      "+RTS", "-K64m",
+      "-RTS"
+    ]
+---
+
+#Part III: High-Throughput Data
+
+```{r, echo=FALSE}
+set.seed(1)
+```
+
+```{r, echo=FALSE}
+rotate <- function(x) t(apply(x, 2, rev))
+draw.matrix <- function(x) {
+  image(rotate(x), axes=FALSE, col = grey(seq(1, 0, length = 256)),
+         xlab=paste("matrix", nrow(x), "x", ncol(x)))
+  box()
+  grid(nx=ncol(x), ny=nrow(x), col="gray")
+}
+
+#install.packages("matrixStats")
+#library(matrixStats)
+#?rowMads
+```
+
+```{r, echo=FALSE}
+#install.packages("devtools")
+#library(devtools)
+#devtools::install_github("genomicsclass/GSE5859")
+#devtools::install_github("genomicsclass/GSE5859Subset")
+```
+```{r}
+#source("http://bioconductor.org/biocLite.R")
+suppressMessages(library(Biobase))
+#biocLite(c("genefilter", "hgfocus.db"))
+suppressMessages(library(genefilter))
+#library(hgfocus.db)
+
+library(GSE5859Subset)
+data(GSE5859Subset)
+
+dim(geneExpression)
+cat(nrow(geneExpression), "RNA gene expressions for", ncol(geneExpression), "samples")
+dim(sampleInfo)
+dim(geneAnnotation)
+head(geneExpression, 1)
+head(sampleInfo) # filename, column key
+head(geneAnnotation) # PROBEID, row key
+```
+
+##Mean Test
+
+Expressions (rows) t-test
+
+```{r}
+# first expression
+t.test(geneExpression[1, sampleInfo$group==1], geneExpression[1, sampleInfo$group==0], var.equal=TRUE)$p.value
+```
+
+```{r}
+# all expressions
+pvals <- apply(geneExpression, 1, function(x) t.test(x[sampleInfo$group==1], x[sampleInfo$group==0], var.equal=TRUE)$p.value)
+head(pvals)
+
+#genefilter, faster
+results <- rowttests(geneExpression, factor(sampleInfo$group))
+max(abs(pvals - results$p)) # 0
+```
+
+```{r}
+plot(results$dm, -log10(results$p.value),
+     xlab="Effect (difference of means)", main="Volcano Plot")
+abline(h=-log10(c(0.01, 0.05, 1, 0.05 / nrow(geneExpression))), col=c("green", "red", "gray", "blue"))
+abline(v=c(-2.5*sd(results$dm), 0, 2.5*sd(results$dm)), col="gray", lty=2)
+```
+
+```{r}
+m <- nrow(geneExpression)
+n <- ncol(geneExpression)
+library(genefilter)
+randomData <- matrix(rnorm(n * m), m, n)
+nullpvals <- rowttests(randomData, factor(sampleInfo$group))$p.value
+
+permg <- sample(factor(sampleInfo$group))
+permresults <- rowttests(geneExpression,permg)
+
+op <- par(mfrow = c(1, 3))
+hist(nullpvals, ylim=c(0, 1400)) # null
+hist(results$p.value, ylim=c(0, 1400)) # correlated samples
+hist(permresults$p.value, ylim=c(0, 1400)) # must be uniform for independed samples
+par(op)
+```
+
+1. Familywise error rate (FWER) (p-values correction, assuming independence):
+
+```{r}
+sidak <- function(a, m) { 1 - (1 - a ) ^ (1 / m) }
+bonferroni <- function(a, m) { a / m }
+
+alpha <- 0.05
+# no correction
+p <- results$p.value <= alpha
+c(mean(p), sum(p))
+# FWER <= alpha, probability of having at least one false positive
+p <- results$p.value <= sidak(alpha, nrow(geneExpression))
+c(mean(p), sum(p))
+p <- results$p.value <= bonferroni(alpha, nrow(geneExpression))
+c(mean(p), sum(p))
+# p.adjust
+p <- p.adjust(results$p.value, method="bonferroni") <= alpha
+c(mean(p), sum(p))
+```
+
+2. False discovery rate (FDR) expected rate of rejecting null hypothesis (FWER = FDR <= q). q-value of a feature is the FDR of the biggest list that includes that gene
+
+```{r}
+q <- p.adjust(results$p.value, method="fdr")
+sum(q <= alpha)
+
+#biocLite("qvalue")
+library(qvalue)
+q <- qvalue(results$p.value)
+length(q$qvalues[q$qvalues <= alpha])
+#or
+q <- qvalue(results$p.value, fdr.level=alpha)
+sum(q$significant[q$significant == TRUE])
+```
+
+```{r}
+plot(-log10(results$p.value), -log10(qvalue(results$p.value)$qvalues), ylab="-log10(qvalues)", xlab="-log10(pvalues)")
+abline(v=-log10(c(0.01, 0.05, 1)), h=-log10(c(0.01, 0.05, 1)), col=c("green", "red", "gray"), lty=2)
+```
+
+Sample (column) quantiles
+```{r}
+qs <- t(apply(geneExpression, 2, quantile, prob=c(0.05,0.25,0.5,0.75,0.95)))
+dim(qs)
+matplot(qs, type="l", lty=1)
+```
+
+Hierachical SD correction (shrink $\sigma$ towards common one)
+
+```{r}
+g <- factor(sampleInfo$group)
+suppressMessages(library(limma))
+fit <- lmFit(geneExpression, design=model.matrix(~ g))
+fit <- eBayes(fit)
+#second coefficient relates to diffences between groups
+pvals <- fit$p.value[,2] 
+op <- par(mfrow = c(1, 2))
+plot(results$dm, -log10(results$p.value),
+     xlab="Effect (difference of means)", main="Volcano Plot Original")
+plot(results$dm, -log10(pvals),
+     xlab="Effect (difference of means)", main="Volcano Plot Corrected")
+par(op)
+```
+
+
+##Singular Value Decomposition
+
+$$\mathbf{Y = UDV^\top}$$
+
+Where:
+
+* $\mathbf{Y}$ is an $m\times n$
+* $\mathbf{U}$ is an $m\times n$ orthogonal matrix ($UU^T=I$)
+* $\mathbf{V}$ is an $n\times n$ orthogonal matrix ($VV^T=I$)
+* $\mathbf{D}$ is an $n\times n$ diagonal matrix
+
+Variance of columns of $UD$, $VD$ is decreasing. 
+
+Or $\mathbf{Y = UZ}$ where $\mathbf{Z = DV^\top}$
+
+```{r}
+(Y <- matrix(1:15,5,3))
+cor(Y) # high correlation in example
+rowMeans(Y)
+SVD <- svd(Y)
+SVD$u
+cor(SVD$u[,1], rowMeans(Y))
+diag(SVD$d)
+SVD$v
+(Y1 <- SVD$u %*% diag(SVD$d) %*% t(SVD$v))
+max(abs(Y - Y1)) #0
+
+plot(SVD$d, type="b")
+
+from.svd <- function(SVD, k) {
+  SVD$u[,1:k] %*% diag(SVD$d[1:k], k, k) %*% t(SVD$v[,1:k])
+}
+# optimized: Y = U %*% Z, Z = D %*% t(V)
+svd.z <- function(SVD, k) {
+  SVD$d[1:k] * t(SVD$v[,1:k]) # Y = U %*% Z, Z = D %*% t(V)
+}
+from.svd.optimized <- function(SVD, k) {
+  Z <- svd.z(SVD, k) 
+  tcrossprod(SVD$u[,1:k], t(Z))
+}
+
+(Y2<- from.svd(SVD, 2))
+(Y2<- from.svd.optimized(SVD, 2))
+max(abs(Y - Y2)) #0
+(Y2<- from.svd(SVD, 1))
+max(abs(Y - Y2)) #0
+```
+
+```{r}
+SVD <- svd(geneExpression)
+plot(SVD$d, type="b")
+plot(SVD$d^2/sum(SVD$d^2) * 100, type="b", ylab="Percent variability")
+boxplot(geneExpression - from.svd(SVD, 2), range=0)
+plot(geneExpression[,1], from.svd(SVD, 2)[,1])
+abline(0,1)
+```
+
+##Sample Distance
+
+Sample i and j Euclidean dinstance: $d(i,j) =  \sqrt{ (Y_i - Y_j)^T (Y_i - Y_j) }$
+
+```{r}
+d <- dist(t(geneExpression)) # t() to get columns (sample) distance
+dm <- as.matrix(d)
+dim(dm)
+dm[1, 1]
+dm[1, 2]
+# sqrt(sum((x - y)^2))
+sqrt(crossprod(geneExpression[, 1] - geneExpression[, 2])) # same
+```
+
+```{r}
+image(dm)
+```
+
+SVD
+
+```{r}
+dim(geneExpression)
+SVD <- svd(geneExpression)
+Z <- SVD$d * t(SVD$v)
+mean(abs(Z - sweep(t(SVD$v), 1, SVD$d, FUN="*"))) #0
+dim(Z)
+
+Y <- from.svd(SVD, 24)
+dim(Y)
+Y1 <- from.svd(SVD, 20) # approximation
+dim(Y1)
+sqrt(crossprod(geneExpression[,1]-geneExpression[,2]))
+sqrt(crossprod(Z[,1]-Z[,2]))
+sqrt(crossprod(Y[,1]-Y[,2]))
+(approx <- sqrt(crossprod(Y1[,1] - Y1[,2])))
+(dm[1, 2] - approx) / dm[1, 2] * 100 # difference in %
+```
+
+Multi-dimensional scaling (MDS) using first two columns of Z:
+
+$d(Y[i], Y[j]) \approx d(Z[,i], Z[,j])$ 
+
+points(x=Z[1,], y=Z[2,])
+
+
+```{r}
+SVD <- svd(geneExpression - rowMeans(geneExpression)) # scale
+plot(SVD$d^2/sum(SVD$d^2), type="b", ylab="Variability", xlab="Columns")
+Z <- svd.z(SVD, 2)
+dim(Z) # 24 samples of 2D points
+head(t(Z))
+head(sweep(SVD$v[,1:2], 2, SVD$d[1:2], "*"))
+
+# plot of approximated sample distance
+plot(Z[1,], Z[2,], bg=as.numeric(sampleInfo$group), pch=21, main="MDS plot")
+```
+
+d from Z
+
+```{r}
+d.from.Z <- function (Z) {
+  n <- ncol(Z)
+  d <- matrix(0, n, n)
+  for(i in 1:n)
+    for(j in 1:n)
+      if(i != j)
+        d[i,j] <- d[j,i] <- sqrt(crossprod(Z[,i] - Z[,j]))
+  d
+}
+SVD <- svd(geneExpression)
+Z <- svd.z(SVD, 24)
+dz <- d.from.Z(Z)
+dz[1, 2]
+dz[2, 1]
+Z2 <- svd.z(SVD, 2)
+dz2 <- d.from.Z(Z2)
+dz2[1, 2]
+dz2[2, 1]
+op <- par(mfrow = c(1, 2))
+image(dz)
+image(dz2)
+par(op)
+```
+
+
+R
+
+```{r}
+d <- dist(t(geneExpression))
+mds <- cmdscale(d,k=2)
+dim(mds)
+plot(mds[,1], mds[,2], bg=as.numeric(sampleInfo$group), pch=21, main="MDS plot")
+```
+
+## Clustering
+
+```{r}
+#devtools::install_github("genomicsclass/tissuesGeneExpression")
+library(tissuesGeneExpression)
+data(tissuesGeneExpression)
+dim(e)
+length(tissue)
+d <- dist(t(e))
+SVD <- svd(e)
+Z2 <- svd.z(SVD, 2)
+dz2 <- d.from.Z(Z2)
+dim(dz2)
+```
+
+1. Hierarchical
+
+```{r}
+(hc <- hclust(d))
+plot(hc, labels=tissue, xlab="tissue tree")
+rect.hclust(hc, k = 14, border = "green")
+abline(h=120, col="red")
+
+hclusters <- cutree(hc, k=14)
+length(hclusters) # sample in cluster
+table(known.group=tissue, found.cluster=hclusters)
+
+hclusters <- cutree(hc, h=120)
+table(known.group=tissue, found.cluster=hclusters)
+
+op <- par(mfrow = c(1, 2))
+plot(e[1,], e[2,], col=1:length(unique(hclusters)), pch=16, main="found")
+plot(e[1,], e[2,], col=as.numeric(factor(tissue)), pch=16, main="known")
+par(op)
+```
+
+Approx. Z2
+
+```{r}
+hc <- hclust(as.dist(dz2))
+plot(hc, labels=tissue, xlab="tissue tree")
+rect.hclust(hc, k = 14, border = "green")
+abline(h=25, col="red")
+hclusters <- cutree(hc, k=14)
+table(known.group=tissue, found.cluster=hclusters)
+```
+
+2. k-means
+
+```{r}
+km <- kmeans(t(e[1:2,]), centers=7)
+names(km)
+length(km$cluster)
+table(known.group=tissue, found.cluster=km$cluster)
+op <- par(mfrow = c(1, 2))
+plot(e[1,], e[2,], col=km$cluster, pch=16, main="found")
+plot(e[1,], e[2,], col=as.numeric(factor(tissue)), pch=16, main="known")
+par(op)
+
+#using mds
+km <- kmeans(t(e), centers=7)
+table(known.group=tissue, found.cluster=km$cluster)
+mds <- cmdscale(d)
+op <- par(mfrow = c(1, 2))
+plot(mds[,1], mds[,2]) 
+plot(mds[,1], mds[,2], col=km$cluster, pch=16)
+par(op)
+```
+
+Approx. Y2
+
+```{r}
+Y2 <- from.svd(SVD, 2)
+km <- kmeans(t(Y2[1:2,]), centers=7)
+table(known.group=tissue, found.cluster=km$cluster)
+```
+
+3. Heatmap
+
+```{r}
+#install.packages("RColorBrewer")
+library(RColorBrewer)
+hmcol <- colorRampPalette(brewer.pal(9, "Oranges"))(100)
+rv <- rowVars(e)
+idx <- order(-rv)[1:40] # to 40
+heatmap(e[idx,], col=hmcol)
+
+#install.packages("gplots")
+suppressMessages(library(gplots))
+cols <- palette(brewer.pal(8, "Dark2"))[as.numeric(factor(tissue))]
+heatmap.2(e[idx,], labCol=tissue,
+          trace="none", 
+          ColSideColors=cols, 
+          col=hmcol)
+```
+
+##Prediction (KNN)
+
+```{r}
+table(tissue)
+idx <- which(tissue != "placenta") # remove
+y <- tissue[idx]
+X <- t(e[, idx]) # columns are the predictors
+c(dim(X), length(y))
+
+set.seed(1)
+# cross validation, train set and test set
+suppressMessages(library(caret))
+foldsIdx <- createFolds(y, k = 5) # five folds
+sapply(foldsIdx, function(i) table(y[i]))
+```
+
+```{r}
+Xsmall <- cmdscale(dist(X)) # apply separately for real to test set
+plot(Xsmall, col=as.numeric(factor(y)))
+legend("topleft",levels(factor(y)),fill=seq_along(levels(factor(y))))
+```
+
+```{r}
+library(class)
+idx <- foldsIdx
+i = 1 # test fold
+pred <- knn(train = Xsmall[-idx[[i]], ],
+            test = Xsmall[idx[[i]], ],
+            cl = y[-idx[[i]]], k = 5)
+table(known=y[idx[[i]]], pred)
+mean(y[idx[[i]]] != pred) # misclassification rate
+```
+
+```{r}
+plot(Xsmall, col=as.numeric(factor(pred)))
+legend("topleft",levels(factor(pred)),fill=seq_along(levels(factor(pred))))
+```
+
+```{r}
+Xsmall <- cmdscale(dist(X), k=5)
+set.seed(1)
+ks <- 1:12
+res <- sapply(ks, function(k) {
+  res.k <- sapply(seq_along(idx), function(i) {
+  pred <- knn(train = Xsmall[ -idx[[i]], ],
+                test = Xsmall[ idx[[i]], ],
+                cl = y[ -idx[[i]] ], k = k)
+  mean(y[ idx[[i]] ] != pred)
+  })
+  mean(res.k)
+})
+plot(ks, res, type="o", ylim=c(0,0.20))
+```
+
+##Batch Effects - ComBat
+
+Confounding of *autosomal* chromosomes because of month in example data (histogram is not flat) (we expect only sex differences *allosome*):
+
+```{r}
+chr <- geneAnnotation$CHR
+res <- rowttests(geneExpression,as.factor(sampleInfo$group))
+qvals <- qvalue(res$p.value)$qvalue
+index <- which(qvals<0.1)
+
+op <- par(mfrow = c(1, 2))
+hist(res$p.value[which(!chr%in%c("chrX","chrY") )],main="",ylim=c(0,1300), xlab="p-values autosomal chromosomes")
+plot(res$dm,-log10(res$p.value))
+points(res$dm[which(chr=="chrX")],-log10(res$p.value[which(chr=="chrX")]),col=1,pch=16)
+points(res$dm[which(chr=="chrY")],-log10(res$p.value[which(chr=="chrY")]),col=2,pch=16,xlab="Effect size",ylab="-log10(p-value)")
+abline(h=-log10(max(res$p.value[index])))
+legend("bottomright", c("chrX","chrY"), col=1:2, pch=16)
+par(op)
+```
+
+We have autosomal (non-sex-related) chromosomes over-represented:
+
+```{r}
+cat("Total genes with q-value < 0.1:", length(index))
+cat("Number of selected genes on chrY:", sum(chr[index]=="chrY", na.rm=TRUE))
+cat("Number of selected genes on chrX:", sum(chr[index]=="chrX", na.rm=TRUE))
+cat("autosomal", length(index) - sum(chr[index]=="chrY", na.rm=TRUE) - sum(chr[index]=="chrX", na.rm=TRUE))
+```
+
+We have to supply batch (month)
+
+```{r}
+sex <- sampleInfo$group
+batch <- factor(format(sampleInfo$date,"%m"))
+table( sampleInfo$group, batch)
+```
+
+Linear model considering batch
+
+```{r}
+# full model
+X <- model.matrix(~sex+batch)
+j <- 7635 #sample row
+y <- geneExpression[j,]
+fit <- lm(y~X)
+summary(fit)$coef
+summary(fit)$coef[2,c(1,4)]
+# model with batch adjust
+fit <- lm(y~X - 1)
+summary(fit)$coef
+summary(fit)$coef[2,c(1,4)]
+
+# apply batch adjust model to each gene
+res <- t( sapply(1:nrow(geneExpression),function(j){
+  y <- geneExpression[j,]
+  fit <- lm(y~X - 1)
+  summary(fit)$coef[2,c(1,4)]
+}))
+
+res <- data.frame(res)
+names(res) <- c("dm","p.value")
+qvals <- qvalue(res$p.value)$qvalue
+index <- which(qvals<0.1)
+
+op <- par(mfrow = c(1, 2))
+hist(res$p.value[which(!chr%in%c("chrX","chrY") )],main="",ylim=c(0,1300), xlab="p-values autosomal chromosomes")
+plot(res$dm,-log10(res$p.value))
+points(res$dm[which(chr=="chrX")],-log10(res$p.value[which(chr=="chrX")]),col=1,pch=16)
+points(res$dm[which(chr=="chrY")],-log10(res$p.value[which(chr=="chrY")]),col=2,pch=16,xlab="Effect size",ylab="-log10(p-value)")
+abline(h=-log10(max(res$p.value[index])))
+legend("bottomright",c("chrX","chrY"),col=1:2,pch=16)
+par(op)
+
+cat("Total genes with q-value < 0.1:", length(index))
+cat("Number of selected genes on chrY:", sum(chr[index]=="chrY", na.rm=TRUE))
+cat("Number of selected genes on chrX:", sum(chr[index]=="chrX", na.rm=TRUE))
+cat("autosomal", length(index) - sum(chr[index]=="chrY", na.rm=TRUE) - sum(chr[index]=="chrX", na.rm=TRUE))
+```
+
+Optimization (compute model matrix only once)
+
+```{r}
+suppressMessages(library(limma))
+X <- model.matrix(~sex+batch - 1)
+fit <- lmFit(geneExpression, X)
+#fit
+dim( fit$coef)
+
+k <- 2 ##second coef
+ses <- fit$stdev.unscaled[,k]*fit$sigma
+ttest <- fit$coef[,k]/ses
+pvals <- 2*pt(-abs(ttest),fit$df)
+```
+
+##Projection and Rotation
+
+$Ax = b$ has a solution iff $b$ is in the columnspace $C(A)$. If not, then we can [project](http://en.wikipedia.org/wiki/Projection_(linear_algebra)) $b$ as $p$ onto $L=C(A)$ and solve $A^TA\hat{x} = A^Tb$. Then 
+$\hat{x} = (A^T A)^{-1} A^T b$, and $p = A\hat{x}$, so the projection matrix $P = A (A^T A)^{-1} A^T$. For $P$, the following hold $P^T = P$ (symmetric) and $P^2=P$. Projection $e$ of $b$ onto orthogonal nullspace $N(A^T)$ has projection matrix $I - P$, so $e = b - p = (I - P)b$. $A^TA$ is invertible if $A^TAx = 0$ ( $A$ has only independent columns $dim(C(A)) = ncol(A)$ (where dim(C(A)) is the rank of $A$) ).
+
+Examples:
+
+1. Mean is a projection to $L$
+
+$$\vec{v}=\begin{pmatrix} 1\\ \vdots \\  1\end{pmatrix};
+L = \{ c \vec{v}; c \in \mathbb{R}\}$$
+
+where $\hat{c} = \bar{Y}$ is the average.
+
+2. Linear modes are a projection to $L$:
+
+$$ L = \{ \beta_0 \vec{v}_0 + \beta_1 \vec{v}_1 ; \vec{\beta}=(\beta_0,\beta_1) \in \mathbb{R}^2 \}$$
+
+with 
+
+$$
+\vec{v}_0=
+\begin{pmatrix}
+1\\
+1\\
+\vdots \\
+1\\
+\end{pmatrix} 
+\mbox{ and }
+\vec{v}_1=
+\begin{pmatrix}
+X_{1}\\
+X_{2}\\
+\vdots \\
+X_{N}\\
+\end{pmatrix} 
+$$
+
+where $$\hat{c} = \hat{\beta}= (X^\top X)^{-1}X^\top \vec{y}$$
+
+**Rotation** is a projection in another subspace $L$:
+
+$$
+Y =   AZ\\
+$$
+
+$$
+ A^{-1} Y =  Z\\
+$$
+
+$Z$ and $Y$ carry the same information in different *coordinate systems*.
+
+*Singular Value Decomposition* (SVD) is a rotation $U^\top Y$ that gives us a new coordiante system $DV^\top$ in which the dimensions are ordered by how much variance they explain.
+
+**Principal Components**
+
+The orthogonal vector that maximizes the sum of squares
+
+$$(\mathbf{Yv}_1)^\top \mathbf{Yv}_1$$ 
+
+$\mathbf{v}_1$ is referred to as the _first principal component_ (PC). Also referred as  _first eigenvector_, $\mathbf{Yv}_1$
+are the projections or coordinates or eigenvalues 
+
+Residuals $$\mathbf{r} = \mathbf{Y} - \mathbf{Yv}_1 \mathbf{v}_1^\top$$
+
+The second PC is the vector that 
+
+$$ \mathbf{v}_2^\top \mathbf{v}_2=1$$
+
+$$ \mathbf{v}_2^\top \mathbf{v}_1=0$$
+
+and maximizes  $$(\mathbf{rv}_2)^\top \mathbf{rv}_2$$ 
+
+$Y$ is $N \times m$ we repeat to find 3rd, 4th, ..., m-th PCs
+
+SVD $\mathbf{Y=UDV}^\top$ gives the PCs in columns of $\mathbf{V}$.
+
+```{r}
+SVD <- svd(geneExpression)
+dim(SVD$v)
+pc <- prcomp(geneExpression) # keeps only V
+dim(pc$rotation)
+for(i in 1:5) print( round( cor( pc$rotation[,i],SVD$v[,i]),3))
+```
+
+##Batch Effects - Factor Analysis
+
+A generalized linear model with $\alpha_{m \times k} W_{k \times n}$ for modeling batch effects
+
+$$Y_{m \times n} = \beta_{m \times p} X_{p \times n} + \alpha_{m \times k} W_{k \times n} + \epsilon_{m \times n}$$
+
+Principal components estimate $W$. $k$ is found using EDA techniques (variance exaplained by SVD$d), assuming $\beta$ is zero:
+
+```{r}
+library(GSE5859Subset)
+data(GSE5859Subset)
+sex <- sampleInfo$group
+batch <- factor(format(sampleInfo$date,"%m"))
+chr <- geneAnnotation$CHR
+y <- geneExpression - rowMeans(geneExpression) #demean for mds plot
+
+# data svd
+SVD <- svd(y)
+d <- SVD$d
+
+# normal for comparison
+y0 <- matrix( rnorm( nrow(y)*ncol(y) ) , nrow(y), ncol(y) )
+d0 <- svd(y0)$d
+
+# sample data first 2 PCs have more variability than we expect for normal independend data
+op <- par(mfrow = c(1, 2))
+plot(d0^2/sum(d0^2),ylim=c(0,.25), main="normal", xlab="PC")
+plot(d^2/sum(d^2), main="sample data", xlab="PC")
+par(op)
+```
+
+MDS of PCs, check sex
+
+```{r}
+#sex
+cols = as.numeric(sex) + 1
+plot(SVD$v[,1], SVD$v[,2], col=cols, pch=16, xlab="PC1",ylab="PC2", main="sex clusters")
+```
+
+Check date
+
+```{r}
+times <-sampleInfo$date 
+o<-order(times)
+op <- par(mfrow = c(1, 2))
+plot(times[o],pch=21,bg=as.numeric(batch)[o],ylab="date")
+cols <- as.numeric( factor(times))
+plot(SVD$v[o,1],pch=21,cex=1.25,bg=cols[o],ylab="First PC",xaxt="n",xlab="")
+legend("topleft",c("batch 1","batch 2"),col=1:2,lty=1,box.lwd=0)
+par(op)
+```
+
+```{r}
+# first 6 pc correlate to date
+op <- par(mfrow = c(3, 3))
+for(i in 1:9) {
+  boxplot(split(SVD$v[,i],times),las=2,range=0, main=paste("pc", i), xlab="month")
+  stripchart(split(SVD$v[,i],times),add=TRUE,vertical=TRUE,pch=1,cex=.5,col=1)
+}
+par(op)
+
+# correlation to month using anova
+corr <- sapply(1:ncol(SVD$v),function(i){
+  fit <- lm(SVD$v[,i]~as.factor(batch))
+  return( summary(fit)$adj.r.squared  )
+  })
+Fstats<- sapply(1:ncol(SVD$v),function(i){
+   fit <- lm(SVD$v[,i]~as.factor(batch))
+   Fstat <- summary(aov(fit))[[1]][1,4]
+   return(Fstat)
+  })
+op <- par(mfrow = c(1, 2))
+plot(corr, main="Correlation PC/month", xlab="PC")
+plot(sqrt(Fstats), main="FStat PC/month", xlab="PC")
+p <- length(unique(batch))
+abline(h=sqrt(qf(0.995, p-1, ncol(SVD$v)-1)))
+par(op)
+```
+
+**Surrogate Variable Analysis (SVA)**
+
+Estimates factors, downweighting the genes that appear to correlate with the outcome of interest.
+
+```{r}
+suppressMessages(library(sva))
+library(limma)
+mod <- model.matrix(~sex)
+svafit <- sva(geneExpression, mod)
+dim(svafit$sv)
+
+# similar to PCs
+for(i in 1:5){
+  print( cor(SVD$v[,i],svafit$sv[,i]) )
+}
+
+svaX<-model.matrix(~sex+svafit$sv)
+lmfit <- lmFit(geneExpression, svaX)
+head(lmfit$coef)
+dim(lmfit$coef)
+
+tt<- lmfit$coef[,2] * sqrt(lmfit$df.residual) / (2*lmfit$sigma)
+res <- data.frame(dm = -lmfit$coef[,2],
+                  p.value = 2*(1-pt(abs(tt),lmfit$df.residual[1]) ) )
+
+qvals <- qvalue(res$p.value)$qvalue
+index <- which(qvals<0.1)
+
+op <- par(mfrow = c(1, 2))
+hist(res$p.value[which(!chr%in%c("chrX","chrY") )],main="",ylim=c(0,1300), xlab="p-values autosomal chromosomes")
+
+plot(res$dm,-log10(res$p.value))
+points(res$dm[which(chr=="chrX")],-log10(res$p.value[which(chr=="chrX")]),col=1,pch=16)
+points(res$dm[which(chr=="chrY")],-log10(res$p.value[which(chr=="chrY")]),col=2,pch=16,xlab="Effect size",ylab="-log10(p-value)")
+abline(h=-log10(max(res$p.value[index])))
+legend("bottomright",c("chrX","chrY"),col=1:2,pch=16)
+par(op)
+```
+
+```{r}
+cat("Total genes with q-value < 0.1:", length(index))
+cat("Number of selected genes on chrY:", sum(chr[index]=="chrY", na.rm=TRUE))
+cat("Number of selected genes on chrX:", sum(chr[index]=="chrX", na.rm=TRUE))
+cat("autosomal", length(index) - sum(chr[index]=="chrY", na.rm=TRUE) - sum(chr[index]=="chrX", na.rm=TRUE))
+```
+
+**EOF**

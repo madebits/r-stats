@@ -1,0 +1,837 @@
+---
+title: "Notes on Statistics"
+output: html_document
+---
+
+#Part II: Modeling
+
+```{r, echo=FALSE}
+set.seed(1)
+```
+
+```{r, echo=FALSE}
+#rotate <- function(x) t(apply(x, 2, rev))
+rotate <- function(x) t(x[nrow(x):1,])
+draw.matrix <- function(x, g=TRUE) {
+  image(rotate(x), axes=FALSE, col = grey(seq(1, 0, length = 256)),
+         xlab=paste("matrix", nrow(x), "x", ncol(x)))
+  box()
+  if(g)grid(nx=ncol(x), ny=nrow(x), col="gray")
+}
+```
+
+```{r}
+head(cars)
+(n <- nrow(cars))
+x <- cars$speed
+y <- cars$dist
+```
+
+##Linear Model
+
+Equation: $Y = X \hat{\beta} + \epsilon$
+
+$$\left[\begin{array}
+{r}
+Y_1 \\
+... \\
+Y_N
+\end{array}\right]
+ = \left[\begin{array}
+{rrrr}
+1 & x_1 & ... & x_{p-1} \\
+... & ... & ... & ... \\
+1 & x_{1,N} & ... & x_{p-1,N}
+\end{array}\right]
+\left[\begin{array}
+{r}
+\beta_0 \\
+\beta_1 \\
+... \\
+\beta_{p-1} 
+\end{array}\right]
+ + \left[\begin{array}
+{r}
+\epsilon_0 \\
+... \\
+\epsilon_N 
+\end{array}\right]
+$$
+
+X: N x p ( rows x columns)
+
+Solution (LSE)
+
+$$X^T Y = X^T X \hat{\beta}$$
+
+$$ \hat{\beta} = (X^T X)^{-1} X^T Y $$
+
+If $X = QR, Q^TQ=I$, then $R\hat{\beta} = Q^TY$ (back-substitution)
+
+Hat-matrix
+
+$$ \hat{Y} = H Y $$
+
+$$ \hat{Y} = X \hat{\beta} $$
+
+$$ H = X (X^T X) ^ {-1} X^T $$
+
+Mean Square Error
+
+$$ r = Y - \hat{Y} = (I - H) Y $$
+$$ MSE = \frac{1}{N - p} r^Tr $$
+
+Weighted LSE, best $C=W^T W$ is the inverse of $Y$ covariance matrix
+
+$$ \hat{\beta} = (X^T W ^ T W X)^{-1} X^T W^T W Y $$
+
+
+Sample: Cars
+
+```{r}
+X <- cbind(1, x)
+head(X)
+X <- model.matrix(~x)
+head(X)
+(b <- solve(crossprod(X)) %*% crossprod(X, y))
+
+h <- X %*% solve(crossprod(X)) %*% t(X)
+dim(h) # Hii is dinstance from mean (centroid) of X
+sum(diag(h)) # model d.f.
+
+op <- par(mfrow = c(1, 2))
+matplot(1:n, h, type="l")
+points(diag(h), pch=17, col="red")
+draw.matrix(h, g=F)
+par(op)
+
+#QR optimization
+QR <- qr(X)
+Q <- qr.Q(QR)
+R <- qr.R(QR)
+backsolve(R, crossprod(Q, y))
+solve.qr(QR, y) #QR
+#solve(R, crossprod(Q,Y))
+
+fitted <- X %*% b # fit existing, or new X
+head(fitted, 3)
+head(tcrossprod(Q)%*%y, 3) #QR
+residuals <- y - fitted
+sum(residuals)
+
+# standardized residuals
+zresiduals <- (residuals - mean(residuals)) / sd(residuals) # scale(residuals)
+sresiduals <- residuals / (sd(residuals) * (1 - diag(h)) ^ 2)
+
+(mse <- crossprod(residuals, residuals) / (n - ncol(X)) )
+
+op <- par(mfrow = c(3, 2))
+plot(x, y, col="gray")
+abline(h=mean(y), lty=2, col="gray")
+lines(x, fitted, col="blue", type="l", lwd=2)
+plot(x, fitted, col="blue", type="l", lwd=2)
+abline(h=mean(y), lty=2, col="gray")
+points(x, residuals + mean(y), col=ifelse(residuals > 0, "red", "green"), pch=ifelse(residuals > 0, 6, 2))
+plot(fitted, residuals, col=ifelse(residuals > 0, "red", "green"))
+abline(h=0, lty=2, col="gray")
+plot(diag(h), type="h")
+abline(h=2 * mean(diag(h)), lty=2, col="gray")
+plot(diag(h), zresiduals, col=ifelse(residuals > 0, "red", "green"), ylab="zresiduals")
+plot(diag(h), sresiduals, col=ifelse(residuals > 0, "red", "green"), ylab="sresiduals")
+par(op)
+```
+
+Confounding
+
+```{r}
+# confounding present if different (collinear)
+cat("ncol =", ncol(X), "rank =", qr(X)$rank)
+```
+
+Model
+
+```{r}
+#formula(dist ~ speed)
+fit <- lm(dist ~ speed, data=cars)
+summary(fit) # coef(fit)
+c(fit$rank, fit$qr$rank)
+
+op <- par(mfrow = c(1, 2))
+plot(x, fit$fitted.values, col="blue")
+abline(a=fit$coefficients[1], b=fit$coefficients[2], lty=2, col="red")
+#abline(fit)
+plot(x, fit$residuals)
+abline(h=0, lty=2, col="gray")
+par(op)
+```
+
+Model diagnostics
+
+```{r}
+op <- par(mfrow = c(2, 2))
+plot(fit)
+par(op)
+```
+
+```{r}
+op <- par(mfrow = c(3, 3))
+plot(dffits(fit)) # how x affects fitted
+matplot(dfbetas(fit), type="l") # how betas change if x is exlcuded (sd relative)
+plot(cooks.distance(fit), type="h") # effect of deleting a given observation
+plot(hatvalues(fit), type="h") # leverage
+plot(rstandard(fit))
+plot(rstudent(fit))
+plot(covratio(fit))
+plot(density(rstudent(fit)), main="")
+par(op)
+
+head(influence.measures(fit)$infmat, 1)
+cn <- colnames(influence.measures(fit)$infmat)
+matplot(influence.measures(fit)$infmat, type="l", ylim=c(-1,1.1)) # summary
+legend("bottomleft", legend=cn, lty=1:length(cn), col=1:length(cn), inset=c(-0.1,-0.1), xpd=TRUE)
+
+car::outlierTest(fit)
+
+op <- par(mfrow = c(1, 3))
+car::qqPlot(fit, simulate=T, labels=row.names(fit))
+#influence plot
+#influence = leverage (= hatvalues) * discrepency (= dfbetas, or cook's D)
+plot(hatvalues(fit), rstudent(fit), type="n", xlab="hatvalues", ylab="sresiduals") # set up
+cook <- cooks.distance(fit)
+points(hatvalues(fit), rstudent(fit), cex=10 * cook / max(cook), pch=21, bg="gray") # zoom 10
+abline(v=2 * mean(diag(h)), h=c(-2,0,2), lty=2) # interesting hatvalues, and sresiduals
+# join influence (added-variable (partial-regression) plots) - of no use here, given cars$speed only
+car::avPlots(fit)
+par(op)
+
+
+```
+
+Prediction
+
+```{r}
+xnew = c(16, 18, 23)
+as.vector(cbind(1, xnew) %*% b)
+predict(fit, list(speed=xnew))
+```
+
+Confidence
+
+```{r}
+confint(fit)
+prd <- predict(fit, list(speed=x), interval = c("confidence"), level = 0.95, type="response")
+plot(x, fit$fitted.values, col="blue", type="b", main="Confidence 95%")
+points(x, y, col="gray")
+#lines(x, prd[,2],col="red",lty=2)
+#lines(x, prd[,3],col="red",lty=2)
+matlines(x, prd[,2:3],col="red",lty=2)
+```
+
+Analysis of variance
+
+```{r}
+(a<- anova(fit))
+# speed reduces SS by 
+a[["Sum Sq"]][1]
+# p-value
+1 - pf(a[["F value"]][1], a[["Df"]][1], a[["Df"]][2])
+```
+
+```{r}
+# autocorrelation between residuals (idependent error terms)?
+car::durbinWatsonTest(fit)
+```
+
+Comparison
+
+```{r}
+fit2 <- lm(dist ~ speed + I(speed^2), data=cars)
+anova(fit2, fit)
+
+# Akaike's information criterion (AIC) - lack of fit
+AIC(fit2, fit) # smaller is better
+
+speed.factor <- factor(cars$speed)
+anova(lm(cars$dist ~ cars$speed + speed.factor))
+```
+
+```{r}
+#http://www.statmethods.net/stats/rdiagnostics.html
+car::vif(fit2)
+sqrt(car::vif(fit2)) > 2 # multi-collinear
+car::ncvTest(fit) #non-constant error variance test
+#car::spreadLevelPlot(fit)
+```
+
+
+##Estimation Errors
+
+Model std. errors
+
+```{r}
+summary(fit)$coe[,2]
+```
+
+Standard error of an estimate is the standard deviation of the sampling distribution of an estimate
+
+```{r}
+b <- replicate(1000, {
+  index <- sample(n, 30)
+  scars <- cars[index,]
+  x <- scars$speed
+  y <- scars$dist
+  b <- lm(y ~ x)$coef
+  b
+})
+b <- t(b)
+head(b, 1)
+apply(b, 2, sd)
+
+op <- par(mfrow = c(2, 2))
+hist(b[,1], main="intercept")
+qqnorm(b[,1])
+qqline(b[,1])
+hist(b[,2], main="speed")
+qqnorm(b[,2])
+qqline(b[,2])
+par(op)
+```
+
+Correlation of estimates
+
+```{r}
+cor(b[,1], b[,2])
+```
+
+Exact variance of estimates:
+
+$$
+\mbox{var}(\mathbf{AY}) = \mathbf{A}\mbox{var}(\mathbf{Y}) \mathbf{A}^\top 
+$$
+
+$$\mbox{var}(\boldsymbol{\hat{\beta}}) = \sigma^2\mathbf{(X^\top X)^{-1}}$$
+
+$$
+\mathbf{r}\equiv\boldsymbol{\hat{\varepsilon}} = \mathbf{Y}-\mathbf{X}\boldsymbol{\hat{\beta}}$$
+
+$$ \Sigma = s^2 \equiv \hat{\sigma}^2 = \frac{1}{N-p}\mathbf{r}^\top\mathbf{r} = \frac{1}{N-p}\sum_{i=1}^N r_i^2$$
+
+```{r}
+p <- ncol(X)
+residuals <- y - fitted # r
+XtXinv <- solve(crossprod(X))
+s <- sqrt(sum(residuals^2) / (n - p)) # rss = sum(residuals^2) = crossprod(residuals)
+s
+sqrt(crossprod(residuals) / (n - p)) #same s
+(ses <- sqrt(diag(XtXinv)) * s) # same std. errors as lm
+```
+
+QR
+
+```{r}
+df <- length(y) - QR$rank
+sigma2 <- sum(residuals^2)/df
+beta.var <- sigma2 * chol2inv(qr.R(QR))
+sqrt(diag(beta.var))
+```
+
+t-test
+```{r}
+(tstat <- summary(fit)$coe[,1] / summary(fit)$coe[,2])
+2 * (1 - pt(abs(tstat), n - 2))
+```
+
+## Models
+
+Let fake some hypothetical data, cars with wonder friction (0 control) and speed class:
+
+```{r}
+n <- nrow(cars)
+wcars <- cars
+wcars[["odist"]] <- cars$dist # remeber original speed
+# wunder friction 1, makes stop distance shorter
+wcars[["fric"]] <- as.factor(rep(paste(sep="", "f", 0:1), length.out = n))
+index.f1 <- wcars$fric == 'f1'
+wcars[index.f1, "dist"] <- round(wcars[index.f1, "dist"] - 0.3 * wcars[index.f1, "dist"])
+# speed class: very slow, slow, fast, very fast
+mu <- mean(wcars$speed)
+ss <- sd(wcars$speed)
+wcars[wcars$speed < (mu - ss), "sclass"] <- "VS"
+wcars[(wcars$speed >= (mu - ss)) & (wcars$speed < mu), "sclass"] <- "S"
+wcars[(wcars$speed >= mu)  & (wcars$speed < (mu + ss)), "sclass"] <- "F"
+wcars[wcars$speed >= (mu + ss), "sclass"] <- "VF"
+wcars$sclass <- factor(wcars$sclass, levels=c("VS", "S", "F", "VF"))
+wcars$group <- factor(paste0(wcars$fric, "." , wcars$sclass))
+head(wcars)
+tail(wcars)
+```
+
+```{r}
+op <- par(mfrow = c(2, 2))
+stripchart(wcars$dist ~ wcars$fric, data=wcars, vertical=TRUE, method="jitter", col=wcars$fric)
+stripchart(wcars$dist ~ wcars$sclass, data=wcars, vertical=TRUE, method="jitter", col=1:length(levels(wcars$sclass)))
+boxplot(wcars$dist ~ wcars$fric, ylab="stop distance", xlab="friction type")
+boxplot(wcars$dist ~ wcars$sclass, ylab="stop distance", xlab="speed class")
+par(op)
+op <- par(mfrow = c(1, 2))
+plot(wcars$speed, wcars$dist, col=wcars$fric, main="Cars by friction")
+plot(wcars$speed, wcars$dist, col=wcars$sclass, main="Cars by speed class")
+par(op)
+```
+
+1. Single factor parameters (one parameter per factor level - 1)
+
+```{r}
+model <- model.matrix(~ fric, data=wcars) # relevel if needed
+head(model)
+draw.matrix(model) # custom function based on image
+
+# changing reference level
+levels(wcars$fric)
+(c <- contrasts(wcars$fric))
+contrasts(wcars$fric) <- contr.treatment(levels(wcars$fric), base=2)
+contrasts(wcars$fric)
+contrasts(wcars$fric) <- c # reset back
+contrasts(wcars$fric)
+
+cat("ncol =", ncol(model ), "rank =", qr(model )$rank) # confounding if different
+
+fit <- lm(dist ~ fric, data=wcars)
+summary(fit)$coef
+anova(fit) # one way anova
+s <- split(wcars$dist, wcars$fric)
+mean(s[["f0"]]) # fit$coef[1]
+mean(s[["f0"]]) - mean(s[["f1"]]) # fit$coef[2]
+
+stripchart(dist ~ fric, data=wcars, vertical=TRUE, method="jitter", col=c(1,2))
+abline(h=c(fit$coef[1], fit$coef[1] + fit$coef[2]), col=c("black", "red"), lty=2)
+legend("topright", legend=c("intercept (f0)", "f1"), col=c(1,2), lty=2)
+
+plot(effects::allEffects(fit), multiline=TRUE)
+
+t.test(s[["f1"]], s[["f0"]], var.equal=TRUE)$statistic # same as from lm
+```
+
+
+2. Combined factors
+
+```{r}
+model <- model.matrix(~ fric + sclass, data=wcars)
+head(model)
+draw.matrix(model)
+contrasts(wcars$sclass)
+
+fit <- lm(dist ~ fric + sclass, data=wcars)
+summary(fit)$coef
+cc <- c("black", "red", "blue", "green", "magenta")
+stripchart(split(wcars$dist, wcars$group), 
+           vertical=TRUE, pch=1, method="jitter", col=cc, main="Coeficients")
+abline(h=c(fit$coef[1],
+           fit$coef[1] + fit$coef[2],
+           fit$coef[1] + fit$coef[2] + fit$coef[3],
+           fit$coef[1] + fit$coef[2] + fit$coef[3] + fit$coef[4],
+           fit$coef[1] + fit$coef[2] + fit$coef[3] + fit$coef[4] + fit$coef[5]), 
+       col=cc, lty=2)
+
+plot(effects::allEffects(fit), multiline=TRUE)
+summary(effects::allEffects(fit))
+```
+
+Coeficients are weighted means of the groups (weighted by group size)
+
+3. Factor interaction
+
+```{r}
+# ~ wcars$fric + wcars$sclass + wcars$fric : wcars$sclass
+model <- model.matrix(~ fric * sclass, data=wcars)
+colnames(model)
+draw.matrix(model)
+cat("ncol =", ncol(model ), "rank =", qr(model )$rank) # confounding if different
+fit <- lm(dist ~ fric * sclass, data=wcars)
+summary(fit)$coef
+anova(fit) # two way anova
+plot(wcars$speed, fit$fitted.values, col=wcars$group)
+plot.design(dist ~ fric * sclass, data=wcars)
+
+plot(effects::allEffects(fit), multiline=TRUE)
+```
+
+Quasi-standard errors
+
+```{r}
+fit$contrasts
+library(qvcalc)
+qvcalc(fit, "sclass")
+```
+
+No intercept
+
+```{r}
+model <- model.matrix(~ 0 + group, data=wcars)
+head(model)
+draw.matrix(model)
+fit <- lm(dist ~ 0 + group, data=wcars)
+summary(fit)$coef
+sapply(split(wcars$dist, wcars$group), mean)
+plot(wcars$speed, fit$fitted.values, col=wcars$group)
+# no anova
+```
+
+4. Numeric parameters
+
+```{r}
+# ~ wcars$speed + wcars$fric + wcars$speed : wcars$fric
+model <- model.matrix(~ speed * fric, data=wcars)
+colnames(model)
+draw.matrix(model)
+cat("ncol =", ncol(model ), "rank =", qr(model )$rank) # confounding if different
+fit <- lm(dist ~ speed * fric, data=wcars)
+summary(fit)$coef
+anova(fit) # ancova - analysis of covariance 
+```
+
+Two lines
+
+```{r}
+b <- fit$coef
+y0 <- b["(Intercept)"] + b["speed"] * wcars$speed
+y1 <- (b["(Intercept)"] + b["fricf1"]) + (b["speed"] + b["speed:fricf1"]) * wcars$speed
+
+plot(wcars$speed, wcars$dist, col="gray")
+lines(wcars$speed, y0, type="b", col="red")
+lines(wcars$speed, y1, type="b", col="blue")
+legend("topleft", legend=c("f0", "f1"), col=c("red", "blue"), lty=1)
+
+plot(effects::allEffects(fit), multiline=TRUE)
+```
+
+
+Model simplification
+
+```{r}
+step(fit)
+```
+
+
+## Contrast
+
+$C\hat{\beta}$ - linear combination $C$ over $\hat{\beta}$, a 0 in $C$ means no involvement of that $\hat{\beta}$ coeficient. Error of $C$: $\sqrt{C \Sigma C^T}$
+
+```{r}
+fit <- lm(dist ~ fric * sclass, data=wcars)
+summary(fit)$coef
+```
+
+```{r}
+suppressMessages(library(contrast))
+slowf0.vs.f1 <- contrast(fit,
+                   list(sclass="VS", fric = "f0"), 
+                   list(sclass="VS", fric = "f1"))
+slowf0.vs.f1
+```
+
+```{r}
+#install.packages("multcomp")
+suppressMessages(library(multcomp))
+# fricf1:sclassF - fricf1:sclassS
+C <- matrix(c(0,0,0,0,0,-1,1,0), 1)
+interaction <- glht(fit, linfct=C)
+summary(interaction)
+fit$coef[7] - fit$coef[6]
+```
+
+All differences of differences between parameters are given by ANOVA:
+
+```{r}
+#aov(dist ~ fric * sclass, data=wcars)
+anova(fit)
+```
+
+
+##Smoothing - Local Weighted Regression (loess)
+
+```{r}
+fit <- loess(y~x, degree=1, span=1/3)
+newx <- seq(min(y), max(x), len=100) 
+smooth <- predict(fit, newdata=data.frame(x=newx))
+plot(x, y, col="darkgrey", pch=16)
+lines(newx, smooth, col="black", lwd=3)
+lines(lowess(y~x, f=1/3), col="red")
+legend("topleft", legend=c("loess", "lowess"), col=c("black", "red"), lty=1)
+#car::qqPlot(residuals(loess(y~x)))
+```
+
+## Predicting with Linear Regression
+
+```{r}
+dataIdx <- (1:nrow(cars) %% 2 == 0) #mod
+testIdx <- (1:nrow(cars) %% 2 == 1)
+sum((dataIdx - testIdx)) #0
+Y <- cars[dataIdx,]$dist
+X <- cars[dataIdx,]$speed
+#cross validation
+test.Y <- cars[testIdx,]$dist
+test.X <- cars[testIdx,]$speed
+c(length(X), length(test.X))
+c(mean(Y), mean(test.Y))
+c(sd(Y), sd(test.Y))
+
+plot(X, Y, col="black", pch=16)
+points(test.X, test.Y, col="darkgray", pch=16)
+```
+
+```{r}
+fit <- lm(Y ~ X)
+yhat <- round(predict(fit))
+test.yhat <- round(predict(fit, newdata=data.frame(X=test.X)))
+# 1 - E(Y∣X=x) (conditional probability)
+#error:
+1 - mean(abs(Y - yhat) < 5)
+1 - mean(abs(test.Y - test.yhat) < 5)
+1 - mean(abs(test.Y - yhat) < 5)
+plot(X, yhat, type="b")
+points(test.X, test.yhat, pch=16, col="darkgrey")
+```
+
+## Predicting with K-nearest Neighbor (KNN)
+
+```{r}
+library(class)
+k=3
+yhat <- as.numeric(knn(data.frame(X), data.frame(X), Y, k=k))
+test.yhat <- as.numeric(knn(data.frame(X), data.frame(test.X), Y, k=k))
+#error
+1 - mean(abs(Y - yhat) < 5)
+1 - mean(abs(test.Y - test.yhat) < 5)
+1 - mean(abs(test.Y - yhat) < 5)
+
+plot(X, yhat, type="b")
+points(test.X, test.yhat, pch=16, col="darkgrey")
+```
+
+```{r}
+train.error <- rep(0, 16)
+test.error <- rep(0, 16)
+idx <- seq(along=train.error)
+for(k in idx){
+  yhat <- knn(data.frame(X), data.frame(X), Y, k=k)
+  train.error[k] <- 1 - mean((as.numeric(yhat) - 1) == y)
+  
+  yhat <- knn(data.frame(X), data.frame(test.X), Y, k = k)
+  test.error[k] <- 1 - mean((as.numeric(yhat) - 1) == y)
+}
+plot(idx, train.error, type="n", xlab="K", ylab="error")
+lines(idx, train.error,type="b", col="black", lty=2, lwd=2)
+lines(idx, test.error,type="b", col="darkgray", lty=3, lwd=2)
+legend("bottomright", c("Train","Test"), col=c("black","darkgray"), lty=c(2,3), box.lwd=0)
+```
+
+##Maximum-Likelihood Estimation (MLE)
+
+MLE is a generalized form of least-squares estimation (LSE).
+
+<http://cran.r-project.org/doc/contrib/Ricci-distributions-en.pdf>
+
+```{r}
+library(stats4)
+```
+
+Mean and standard deviation
+
+```{r}
+z <- (cars$speed - mean(cars$speed)) / sd(cars$speed) # standartize speed
+c(mean(z), sd(z))
+
+# estimate mu, sigma using log-likelihood function (L)
+LL <- function(mu, sigma) {
+  R <- dnorm(z, mu, sigma) 
+  -sum(log(R))
+}
+(fit <- mle(LL, start = list(mu = 0, sigma=1)))
+
+#difference
+coef(fit) - c(mean(z), sd(z))
+
+# speed (no standartization)
+c(mean(cars$speed), sd(cars$speed))
+LL <- function(mu, sigma) {
+  R <- dnorm(cars$speed, mu, sigma) 
+  -sum(log(R))
+}
+(fit <- mle(LL, start = list(mu = 14, sigma=3),
+            method = "L-BFGS-B", lower = c(-Inf, 0),
+            upper = c(Inf, Inf)))
+
+#difference
+coef(fit) - c(mean(cars$speed), sd(cars$speed))
+
+```
+
+Linear models
+
+```{r}
+#install.packages("bbmle")
+library(bbmle)
+fit <- lm(dist ~ speed, data=cars)
+summary(fit)$coef
+residuals <- cars$dist - fit$fitted.values
+c(mean(residuals), sd(residuals))
+
+LL <- function(beta0, beta1, mu, sigma) {
+  R <- cars$dist - cars$speed * beta1 - beta0
+  R <- suppressWarnings(dnorm(R, mu, sigma))
+  -sum(log(R))
+}
+
+fit <- mle2(LL, start=list(beta0=-15, beta1=3, mu=0, sigma=5))
+coef(fit)
+
+residuals <- cars$dist - cars$speed * coef(fit)["beta1"] - coef(fit)["beta0"]
+c(mean(residuals), sd(residuals))
+```
+
+## Logistic Regression
+
+Binary outcome $logit(p) = X \beta$ (no projection error). [Deviance](http://en.wikipedia.org/wiki/Deviance_(statistics)) changes are $\chi^2$ distributed (d.f. = change in number of parameters)
+
+```{r}
+cars$fastcar <- as.factor(ifelse(cars$dist > mean(cars$dist), 1, 0))
+cars$fastcar
+```
+
+```{r}
+fit <- glm(fastcar~speed,family=binomial("logit"), data=cars)
+exp(cbind(coef(fit), confint(fit))) # odds scale
+
+summary(fit)
+anova(fit, test="Chisq")
+
+op <- par(mfrow = c(1, 2))
+plot(cars$speed, fitted(fit), type="l")
+xx <- seq(0, 1, 0.01)
+plot(xx, log(xx/ (1 - xx)), type="l")
+par(op)
+
+(p <- predict(fit, newdata = list(speed=c(10,20)), type = "response"))
+ifelse(p > 0.5, "Fast", "Slow")
+
+op <- par(mfrow = c(2, 2))
+plot(fit)
+
+par(op)
+```
+
+Overdispersion
+
+```{r}
+c(fit$deviance, fit$df.residual, summary(fit)$dispersion)
+(fi <- deviance(fit) / df.residual(fit)) # overdispersion if too > 1
+
+# if fi >> 1
+qfit <- glm(fastcar~speed,family=quasibinomial("logit"), data=cars)
+
+c(qfit$deviance, 
+  qfit$df.residual,
+  summary(qfit)$dispersion,
+  summary(fit)$dispersion * fit$df.residual, 
+  summary(qfit)$dispersion * qfit$df.residual,
+  deviance(fit),
+  deviance(qfit)
+  )
+
+pchisq(summary(qfit)$dispersion * fit$df.residual, fit$df.residual, lower = F) # p-value < 0.05 for overdispersion
+
+anova(fit, qfit, test="Chisq")
+```
+
+## Robust Regression
+
+```{r}
+fitLse <- lm(dist ~ speed, data=cars)
+```
+
+1. Least Absolute Values (LAV), uses median (higher estimation variance that LSE)
+
+```{r}
+suppressMessages(suppressWarnings(library(quantreg)))
+fitLav <- rq(dist ~ speed, data=cars)
+summary(fitLav)
+```
+
+2. M-Estimation: 2a) Huber (combines: lse around center, lav in sides), 2b) Bisquare weights (MM) (resistant to extreme observations in tails)
+
+```{r}
+library(MASS)
+fitHuber <- rlm(dist ~ speed, data=cars)
+fitBisquare <- rlm(dist ~ speed, data=cars, method="MM") # or robustbase::lmrob
+summary(fitHuber)
+summary(fitBisquare)
+```
+
+3. Least Trimmed Squares (LTS), uses ordered 50% lower LSE, robust, needs more data
+
+```{r}
+suppressMessages(suppressWarnings(library(robustbase)))
+fitLts <- ltsReg(dist ~ speed, data=cars)
+summary(fitLts)
+```
+
+4. Least Median Squares (LMS)
+
+```{r}
+#library(MASS)
+fitLms <- lqs(dist ~ speed, data=cars)
+coef(fitLms)
+```
+
+```{r}
+models <- list(lse=fitLse, lav=fitLav, huber=fitHuber, bisq=fitBisquare, lts=fitLts, lms=fitLms)
+cmodels <- matrix(0, length(models), 2)
+rownames(cmodels) <- names(models)
+colnames(cmodels) <- c("intercept", "speed")
+plot(cars$speed, cars$dist, col="gray")
+for(i in 1:length(models)) {
+  cc <- coef(models[[i]])
+  cmodels[i, 1] <- cc[1]
+  cmodels[i, 2] <- cc[2]
+  abline(coef=cc, col=i, lty=i)
+}
+abline(h=c(median(cars$dist), mean(cars$dist)),
+       v=c(median(cars$speed), mean(cars$speed)),
+       lty=c(1,2), col=8)
+legend("topleft", legend=names(models),
+       col=c(1:length(models), 8,8), lty=c(1:length(models), 8,8))
+
+cmodels
+
+# weights (huber gives more 1, lse is all 1)
+plot(fitBisquare$w, fitHuber$w, xlab="bisquare weights", ylab="huber weights", xlim=c(0,1), ylim=c(0,1))
+abline(0,1)
+```
+
+```{r}
+for(i in 1:length(models)) {
+  cc <- coef(models[[i]])
+   print(cc)
+} 
+```
+
+
+##Hierachical Models
+
+Base average (population)
+
+$$\theta \approx N(\mu, \tau^2) $$
+
+Sample given base
+
+$$Y|\theta \approx N(\theta, \sigma^2)$$
+
+$$E(\theta | Y) = B\mu + (1 - B) Y$$
+
+Shrink sample towards population average
+
+$$B = \frac{ \sigma^2}{ \sigma^2 + \tau^2 }$$
+
+
+**EOF**

@@ -1,0 +1,287 @@
+---
+title: "Notes on Statistics"
+output: html_document
+---
+
+#Part IV: Appendix: Probability
+
+```{r}
+(d <- dnorm(0))
+(q <- pnorm(0))
+qnorm(q) # median
+```
+
+###Simulation
+
+If $F(x) = P(X \leqslant x)$ and $U \sim Unif(0, 1)$, $X = F^{-1}(U)$ has cumulative distribution $F$.
+
+$$
+P(X \leqslant x) = P(F^{-1}(U) \leqslant x) = P(U \leqslant F(x)) = F(x)
+$$
+
+## Discrete Distributions
+
+$$p(x) = P(X = x) = p$$
+$$\sum_i p(x_i) = 1$$
+$$F(x) = P(X \leqslant x) = q$$
+
+$$\mu_x = E(X) = \sum_i x_i p(x_i)$$
+
+$$E(Y|X=x) = \sum_y p_{Y|X}(y|x)$$
+
+* If $Y=g(X)$, then $E(Y) = \sum_i g(x_i) p(x_i)$
+
+---
+
+* Ber(p): Sampling with replacement: Probability of k sucesses in one (Bernuli) trial. Given event A, then indicator variable $I_A$ is 1 when A occurs with probability $p$, and 0 otherwise with probability $1-p$
+
+$$
+Ber(k | p) = p^k(1-p)^k, k \in \left\{ 0,1 \right\}
+$$
+
+```{r}
+k <- 5
+p <- 0.5
+dbinom(k,1,p) # ~ Ber(p)
+```
+
+* Binom(n,p): Sampling with replacement: Probability of k successes in n trials with probability of success per trial p. Binomial is the sum of n Bernuli trials.
+
+$$
+Binom(k, n | p) = {n \choose k} p^k(1-p)^{n-k}, k = 0,1,2,...,n
+$$
+
+```{r}
+p <- 0.5
+n <- 10
+k <- 5
+dbinom(k,n,p) # ~ Binom(n,p)
+```
+
+* Pois($\lambda$): Sampling with replacement: Probability of k events per (time) unit with average l events per (time) unit. Poisson is the limit of Binomila when p is small and n is large.
+
+$$
+Poisson(k | \lambda) = \frac{\lambda^ke^{-\lambda}}{k!}
+$$
+
+```{r}
+l <- 5
+k <- 10
+dpois(k,l) # ~ Pois(l)
+```
+
+* Geom(p): Sampling with replacement: Probability of k failures until first success with probability of success per trial p. Number of trials t until first success t = k + 1.
+
+$$
+Geom(k | p) = (1 - p)^{k-1} p, k = 1,2,3,...
+$$
+
+```{r}
+p <- 0.5
+k <- 5
+dgeom(k,p) # ~ Geom(p)
+t <- 5 # trials
+dgeom(t - 1,p)
+rgeom(5,p) + 1
+```
+
+* NegBin(r,p): Sampling with replacement: Probability of k failures until r-th success with probability of success per trial p. Number of trials t until r-th success t = k + r.
+
+$$
+NegBinom(k, r | p) = {k + r -1 \choose k} (1-p)^r p^k, k = 0,1,2,...
+$$
+
+```{r}
+p <- 0.5
+k <- 5
+r <- 2
+dnbinom(k,r,p) # ~ NegBin(r,p)
+dnbinom(k,1,p) # = dgeom(k,p)
+t <- 5 # trials
+dnbinom(t - r,r,p)
+rnbinom(5,r,p)+r
+```
+
+* HyperGeometric: Sampling without replacement: Probability of k red balls, when picking n from a bag with N balls, K of which are red.
+
+$$
+HyperGeometric(k, n | K, N) = \frac{ {K \choose k } { N - K \choose n - k } }{ {N \choose n} }
+$$
+
+```{r}
+N <- 10 # total balls
+r <- 4 # red
+n <- 7 # picked
+k <- 5 # can we cant k red, with n picks
+dhyper(k, r, N - r, n) # ~ Hyper()
+```
+
+* Multi(n, p1, ... , pr ): Sampling with replacement: Probability of k1, k2,...,kr successes in a n = sum(k1, k2, ..., kr) sample with r values with probability of success p1, p2, p3, ..., pr, so that sum(p1, p2, p3, ..., pr) = 1.
+
+```{r}
+k <- c(2,3,3,4)
+(n <- sum(k))
+p <- c(0.30,0.25,0.20,0.25)
+dmultinom(k,prob=p) # ~ Multi(n, p1, ... , pr )
+dbinom(k[1], n, p[1]) # each k1 is binonimal
+```
+
+## Continuous Distributions
+
+$$ P(a < X < b) = P(a \leqslant X < b) = P(a < X \leqslant b) = \int_a^b f(x)dx = F(b) - F(a)$$
+$$ P(X = x) = 0$$
+$$ F(X) = P(X \leqslant x) = \int_{-\infty}^x f(u)du = q$$
+$$ x_q = F^{-1}(q)$$
+$$ f_X(x) = \frac{d}{du}F_U(u)$$
+
+$$\mu_x = E(X) = \int_{-\infty}^\infty x f(x)dx$$
+$$E(Y|X=x) = \int y f_{Y|X}(y|x)dy$$
+$$E(Y) = E(E(Y|X))$$
+
+* If $Y=g(X)$, then $E(Y) = \int_{-\infty}^\infty g(x) f(x)dx$
+* If $X$, $Y$ idependent $E(XY)=E(X)E(Y)$
+* $Var(X) = \sigma_x^2 = E((X - E(X))^2) = E(X^2) - (E(X))^2$
+* Mean square error of $X$ from $x_0$: $MSE = E((X - x_0)^2) = \beta^2 + \sigma^2$ if $X = x_0 + \beta + \epsilon$, where $\sigma^2 = Var(\epsilon)$
+* Markov inequality: If $P(X \geqslant 0) = 1$ then $P(X \geqslant t) \leqslant \frac{E(X)}{t}$
+* Chebyshev inequality: If $t > 0$ then $P(|X - \mu_x| \geqslant t) \leqslant \frac{\sigma^2}{t^2}$. If $t=k\sigma$ then $P(|X - \mu_x| \geqslant k\sigma) \leqslant \frac{1}{k^2}$
+* $Cov(X, Y) = \sigma_{XY} = E( (X - \mu_x) (Y - \mu_y) ) = E(XY) - E(X)E(Y)$
+* $Var(X) = Cov(X, X)$
+* $Var(X + Y) = Var(X) + Var(Y) + 2 Cov(X, X)$
+* Correlation: $\rho = \frac{Cov(X,Y)}{\sqrt{(Var(X)Var(Y))}} = \frac{\sigma_{XY}}{\sigma_X \sigma_Y}$
+* Moment generating function: $M(t) = E(e^tX)$, $M^{(r)}(0) = E(X^r)$
+
+---
+
+* Unif(min, max): Constant in interval min, max.
+
+$$
+Unif(x | a,b) = \frac{1}{b-a}, x \in [a,b]; 0, x \notin [a,b]
+$$
+
+```{r}
+x <- seq(-4,4,0.01)
+plot(x, dunif(x,min=0,max=1), type="l") # ~ Unif(min, max)
+lines(x, dunif(x,min=-1,max=1), type="l", col=2) 
+lines(x, dunif(x,min=-2,max=2), type="l", col=3) 
+legend("topright", legend=c("U(0,1)", "U(-1,1)", "U(-2,2)"), lwd=1, col=1:3)
+```
+
+* Exp(lambda): Mean unit between events m, rate l = 1/m.
+
+$$
+Exp(x | \lambda) = \lambda e ^ {-\lambda}, x >= 0; 0, x < 0 
+$$
+
+```{r}
+x <- seq(0,1,0.01)
+plot(x, dexp(x, 10), type="l", ylim = c(0, 50)) # ~ Exp(lambda)
+lines(x, dexp(x, 20), type="l", col=2)
+lines(x, dexp(x, 50), type="l", col=3)
+legend("topright", legend=c("Exp(10)", "Exp(20)", "Exp(50)"), lwd=1, col=1:3)
+```
+
+* Norm(mu, sigma), or N(mu, sigma)
+
+
+$$
+Norm(x | \mu, \sigma) = \frac{1}{ \sigma \sqrt{2\pi} }  e^{-\frac{(x - \mu)^2}{2\sigma^2} }
+$$
+
+```{r}
+x <- seq(-5,5,0.01)
+plot(x, dnorm(x, 0, 1), type="l") # ~ Norm(mu, sigma)
+lines(x, dnorm(x, 0, 2), type="l", col=2)
+lines(x, dnorm(x, 0, 5), type="l", col=3)
+legend("topright", legend=c("N(0,1)", "N(0,2)", "N(0,5)"), lwd=1, col=1:3)
+# Binom(n,p) ~ Norm(np, sqrt(np(1-p))), continuity correction (a-0.5, b+0.5)
+```
+
+* ChiSquare(n): If $Z \sim Norm(0,1)$, then $X = Z^2$ is chi-square with 1 d.f $X \sim \chi_1^2$. If $X_1, ..., X_n$ are independent chi-square with 1 d.f then $U = X_1 + ... + X_n$ is chi-square with $n$ d.f, $U \sim \chi_n^2$. Sample variance $s^2 \sim \chi_{n-1}{2}$.
+
+```{r}
+x <- seq(0,10,0.01)
+plot(x, dchisq(x, df=1), type="l", ylim=c(0,1)) 
+lines(x, dchisq(x, df=2), type="l", col=2) 
+lines(x, dchisq(x, df=3), type="l", col=3) 
+lines(x, dchisq(x, df=5), type="l", col=4)
+legend("topright", legend=c("Chi2(1)", "Chi2(2)", "Chi2(3)", "Chi2(5)"), lwd=1, col=1:4)
+```
+
+* t-student(n): If $Z \sim Norm(0,1)$ and $U \sim \chi_n^2$ then $\frac{Z}{\sqrt{\frac{U}{n}}} \sim t(n)$ 
+
+```{r}
+x <- seq(-5,5,0.01)
+plot(x, dt(x, df=1), type="l", ylim=c(0,0.5))
+lines(x, dt(x, df=5), type="l", col=2) 
+lines(x, dt(x, df=10), type="l", col=3) 
+legend("topright", legend=c("t(1)", "t(5)", "t(10)"), lwd=1, col=1:3)
+```
+
+* F(m,n): If $U \sim \chi_m^2$ and $V \sim \chi_n^2$ are independent then $W =  \frac{\frac{U}{m}}{\frac{V}{n}} \sim F(m,n)$.
+
+```{r}
+x <- seq(0,10,0.01)
+plot(x, df(x, df1=1, df2=Inf), type="l", ylim=c(0,2))
+lines(x, df(x, df1=5, df2=Inf), type="l", col=2)
+lines(x, df(x, df1=10, df2=Inf), type="l", col=3)
+lines(x, df(x, df1=10, df2=10), type="l", col=4)
+legend("topright", legend=c("F(1,Inf)", "F(5,Inf)", "F(10,Inf)", "F(10, 20)"), lwd=1, col=1:4)
+```
+
+* Cauchy: Z = X / Y, where X,Y iid ~ Norm, then Z has Cauchy density.
+
+    $$
+    Cauchy(x) = \frac{1}{\pi(1+x^2)}
+    $$
+    Location $x_0$, scale $\gamma$:
+    $$
+    Cauchy(x | x_0, \gamma) = \frac{1}{\pi\gamma(1+(\frac{x - x_0}{\gamma})^2)}
+    $$
+
+```{r}
+x <- seq(-10,10,0.01)
+plot(x, dcauchy(x), type="l")
+lines(x, dcauchy(x, scale=2), type="l", col=2)
+lines(x, dcauchy(x, scale=5), type="l", col=3)
+legend("topright", legend=c("Cauchy(0,1)", "Cauchy(0,2)", "Cauchy(0,5)"), lwd=1, col=1:3)
+```
+
+* Gamma(a, b): Time of k arrivals for Pois(lambda) is ~Gamma(a, b) where a=k, b=1/lambda
+
+$$
+\Gamma(x | \alpha, \beta) = \frac{x^{\alpha-1}e^{\frac{-x}{\beta}}}{\beta^k \Gamma(\alpha)}, x > 0, \alpha > 0, \beta > 0
+$$
+
+```{r}
+x <- seq(0,10,0.01)
+plot(x, dgamma(x,shape=1,rate=5), type="l") #~ Gamma(n, lambda)
+lines(x, dgamma(x,shape=2,rate=5), type="l", col=2)
+lines(x, dgamma(x,shape=10,rate=5), type="l", col=3)
+legend("topright", legend=c("Gamma(1,5)", "Gamma(2,5)", "Gamma(10,5)"), lwd=1, col=1:3)
+
+# nth occurrence is the sum of n interarrival times each with ~Exp(lambda)
+# (number of arrivals N in interval is ~Pois(lambda) = poisson process)
+# simulate gamma with sum of dexp
+s <- replicate(10000,sum(rexp(100,5)))
+hist(s,prob=T)
+curve(dgamma(x,100,5),0,100,add=T)
+```
+
+Beta(a, b): Beta distribution generalizes the uniform distribution ∼ Beta(a, b) in [0,1]. Unif(0,1)= Beta(1,1). The k-order statistics of n uniformly distributed random variables in [0,1] has X(k) ~ Beta(k, n - k + 1). 
+
+$$
+Beta(x | \alpha,\beta) = \frac{1}{B(\alpha,\beta)} x^{\alpha - 1} (1 - x)^{\beta - 1} = \frac{\Gamma(\alpha + \beta)}{\Gamma(\alpha)\Gamma(\beta)} x^{\alpha - 1} (1 - x)^{\beta - 1}
+$$
+
+```{r}
+x <- seq(0,1,0.01)
+plot(x, dbeta(x,1,1), type="l", ylim=c(0,4))
+lines(x, dbeta(x,1,2), type="l", col=2)
+lines(x, dbeta(x,2,2), type="l", col=3)
+lines(x, dbeta(x,5,10), type="l", col=4)
+legend("topright", legend=c("B(1,1)", "B(1,2)", "B(2,2)", "B(5,10)"), lwd=1, col=1:4)
+```
+
+**EOF**
+
+

@@ -1,0 +1,933 @@
+---
+title: "Notes on Statistics"
+output: html_document
+---
+
+```{r, echo=FALSE}
+set.seed(1)
+```
+
+# Part I: Basics
+
+Sample data `cars` : speed (mph), stop distance (ft)
+
+```{r}
+head(cars)
+(n <- nrow(cars))
+x <- cars$speed
+y <- cars$dist
+```
+
+```{r, echo=FALSE}
+plot(x, col=ifelse(x > mean(x), "red", "blue"))
+abline(h=mean(x), col="gray")
+hist(x)
+lines(seq(0, 25, length.out=100), dnorm(seq(0, 25, length.out=100), mean(x), sd(x)) * n * 4.5, col="red")
+```
+
+```{r}
+summary(cars)
+```
+
+Stem-and-leaf
+
+```{r}
+stem(x)
+```
+
+
+## Mean (1st moment)
+
+```{r}
+sum(x) / n
+```
+
+```{r}
+(x.mean <- mean(x))
+```
+
+MA:
+
+```{r, echo=FALSE}
+sunflowerplot((x + x.mean) / 2, x - x.mean)
+abline(v=x.mean, h=0, col="gray")
+```
+
+As matrix: $mean = \frac{1}{N} A^T X$
+
+where:
+
+$$\mathbf{A^T} = \left[\begin{array}
+{rrr}
+1 & ... & 1
+\end{array}\right]
+$$
+
+```{r}
+t(matrix(1, n, 1)) %*% matrix(x, n, 1) / n
+crossprod(matrix(1, n, 1), matrix(x, n, 1)) / n # inner product
+```
+
+```{r}
+p <- split(x, gl(5, length(x) / 5))
+(sum(sapply(p, mean)) / length(p))
+```
+
+Other (Pythagorean) means (AM >= GM >= HM)
+
+Geormetric (processes change multiplicatively)
+
+```{r}
+prod(x) ^ (1 / n)
+exp(mean(log(x)))
+```
+
+Harmonic mean (x > 0) (average of rates (reciprocals))
+
+```{r}
+1 / mean (1 / x)
+```
+
+Weighted mean
+
+```{r}
+w <- (n:1) / sum(n:1) # 1
+crossprod(w, x) / sum(w)
+weighted.mean(x, w)
+weighted.mean(x, rep(1/n, n) )
+```
+
+Generalized mean (power mean, or $k^{th}$ - moment) (p=0, geometric mean)
+
+```{r}
+gmean <- function(x, p, n = length(x), w = rep(1/n, n)) 
+  as.vector(if(p == 0) prod(sapply(1:n, function(i) { x[i] ^ w[i] })) ^ (1 / sum(w)) 
+  else (crossprod(w, x ^ p) / sum(w)) ^ (1 / p))
+
+gmean(x, 0) #geometric mean
+gmean(x, 0, w = w) #weighted geometric mean
+gmean(x, 1) #arithmetic mean
+gmean(x, 1, w = w) #weighted arithmetic mean
+gmean(x, 2) #quadratic mean (RMS - root mean square)
+
+sqrt(c(mean(x) ^ 2 + var(x), mean(x ^ 2)))
+
+gmean(x, 3) #cubic mean
+```
+
+
+##Mode
+
+```{r}
+(freq <- table(x))
+as.numeric(names(freq)[which.max(freq)])
+```
+
+##Range
+
+```{r}
+c(min(x), max(x))
+(x.range <- range(x))
+x.range - x.mean
+diff(x.range) / 2
+sum(x.range) / 2 # midrange
+```
+
+Max/min ratio (~1, no transformation needed):
+
+```{r}
+x.range[2] / x.range[1]
+```
+
+
+##Variance (2nd moment)
+
+Sum of squares
+
+```{r}
+(x.ss <- sum( (x - x.mean)^2 ))
+```
+Variance
+```{r}
+x.ss / (n - 1) # d.f = n - 1
+```
+```{r}
+(x.var <- var(x))
+```
+Population variance
+```{r}
+x.ss / n
+(x.popvar <- var(x) * (n - 1) / n)
+```
+
+As matrix: $variance = \frac{1}{N} r^T r$ where: $r = X - mean(X)$ (also $r^T r$ is squared length of r)
+
+```{r}
+r <- x - mean(x)
+crossprod(r, r) / n
+```
+
+##Standard Deviation
+
+```{r}
+sqrt(x.var)
+(x.sd <- sd(x))
+```
+
+Population standard deviation
+```{r}
+(x.popsd <- sqrt(x.popvar))
+```
+
+```{r}
+mean(replicate(10, sd(sample(x, 30))))
+```
+
+```{r, echo=FALSE}
+sd.sample.xx <- seq(10, 50, 5)
+sd.sample.yy <- sapply(sd.sample.xx, function(s) { mean(replicate(1000, sd(sample(x, s, replace = FALSE)))) })
+sd.sample.yy2 <- sapply(sd.sample.xx, function(s) { mean(replicate(1000, sd(sample(x, s, replace = TRUE)))) })
+plot(sd.sample.xx, sd.sample.yy, type="b", ylim=c(4.5, 6), xlab="sample size", ylab="sd", main="simulation")
+lines(sd.sample.xx, sd.sample.yy2, type="b", lty=2, col=2)
+abline(h=sd(x), v=30, col=3:4, lty=3)
+legend("topright", legend=c("no replace", "with replace", "sd(x)"), lty=1:3, col=1:3)
+```
+
+```{r}
+# coefficient of variation
+(x.sd / x.mean) * 100 # percent
+```
+
+
+##Quantiles
+
+```{r}
+quantile(x)
+
+#median
+sort(x)[n / 2] # n even
+x.sorted <- sort(x)
+mean(x.sorted[floor(n / 2)], x.sorted[ceiling(n / 2)]) # any n
+
+quantile(x, 0.5)
+(x.median <- median(x))
+x.Q1 <- quantile(x)[[2]]
+x.Q3 <- quantile(x)[[4]]
+(x.iqr <- x.Q3 - x.Q1)
+```
+
+```{r, echo=FALSE}
+boxplot(x)
+```
+
+Median absolute deviation
+
+```{r}
+1.4826 * median(abs(x - x.median))
+(x.mad <- mad(x))
+
+abs(c(x.mean - x.median, x.sd - x.mad))
+```
+
+Outliers
+
+```{r}
+c( x[x < (x.Q1 - 1.5 * x.iqr)], x[x > (x.Q3 + 1.5 * x.iqr)] )
+boxplot.stats(x)$out
+#car::outlier.test(x)
+```
+
+##Skew (3rd moment)
+
+```{r}
+plot(density(x))
+```
+
+Negative skew (longer left tail)
+
+```{r}
+m3 <- sum((x - mean(x))^3) / length(x)
+s3 <- sqrt(var(x)) ^ 3
+(x.skew <- m3 / s3)
+```
+
+Significance (normal > 0.05) (see t-test)
+
+```{r}
+x.skew.se <- sqrt(6 / n)
+x.skew / x.skew.se
+1 - pt(x.skew / x.skew.se, n - 2)
+```
+
+##Kurtosis (4th moment)
+
+```{r}
+m4 <- sum((x - mean(x))^4) / length(x)
+s4 <- var(x) ^ 2
+(x.kurtosis <- m4 / s4 - 3)
+```
+
+```{r}
+xx <- rnorm(50, mean=mean(x), sd=sd(x))
+m4 <- sum((xx - mean(xx))^4) / length(xx)
+s4 <- var(xx) ^ 2
+m4 / s4 - 3 # 0
+```
+
+Significance (normal > 0.05) (see t-test)
+
+```{r}
+x.kurtosis.se <- sqrt(24 / n)
+x.kurtosis / x.kurtosis.se
+1 - pt(x.kurtosis / x.kurtosis.se, n - 2)
+```
+
+##Standardization (z-score)
+
+Tests for normal
+
+```{r}
+# pvalue > 0.05, normal
+shapiro.test(x)
+ks.test(unique(x), "pnorm", mean(unique(x)), sd(unique(x)))
+ks.test(x, "pnorm", mean(x), sd(x), exact = FALSE)
+```
+
+```{r}
+#plot(ecdf(x), col="red")
+plot(sort(x), cumsum(sort(x)) / sum(x), type = 's', xlab="x", ylab="cumulative probability")
+lines(sort(x), pnorm(sort(x), mean=x.mean, sd=x.sd), type="l", col="blue")
+abline(h=1, col="gray", lty=3)
+```
+
+Standardization
+
+```{r}
+x.z <- (x - x.mean) / x.sd
+head(x.z)
+mean(x.z)
+sd(x.z)
+head(scale(x))
+```
+
+Assuming normal distribution
+
+```{r}
+temp.xx <- seq(-4,4, length.out=100)
+temp.xx <- pretty(c(-4, 4), 100)
+plot(temp.xx, dnorm(temp.xx), type="l", xlab="z", ylab="dnorm(z)", col="red")
+rug(jitter(x.z), col="green")
+abline(v=0, col="gray")
+abline(v=c(-2.5, 2.5), col="blue", lty=3)
+points(x.z, dnorm(x.z), pch=16)
+lines(density(x.z), col="gray", lwd=2, lty=3)
+```
+
+```{r}
+qqnorm(x.z)
+qqline(x.z, lty=2)
+```
+
+Probability of speed bigger than selected
+
+```{r}
+(z1 <- sample(x.z, 1))
+which(x.z == z1)
+x[x.z == z1]
+1 - pnorm(z1)
+```
+
+Check
+
+```{r}
+abs(qnorm(1 - pnorm(z1)))
+```
+
+```{r}
+pnorm(z1)
+integrate(dnorm, -Inf, z1)
+1 - pnorm(z1)
+integrate(dnorm, z1, Inf)
+```
+
+Probability of speed between z1, z2
+
+```{r}
+(z12 <- sort(sample(x.z, 2)))
+pnorm(z12[2]) - pnorm(z12[1])
+integrate(dnorm, z12[1], z12[2])
+```
+
+Bivariate density plot
+
+```{r}
+suppressWarnings(suppressMessages(sm::sm.density(cars)))
+op <- par(mfrow = c(1, 2))
+suppressWarnings(suppressMessages(sm::sm.density(cars, display="image")))
+suppressWarnings(suppressMessages(sm::sm.density(cars, display="slice")))
+par(op)
+```
+
+
+##Central Tendency (CLT)
+
+$$ P( \frac{S_n / n - \mu}{\sigma / \sqrt{n}} \le t) \to P(Z \le t), n \to \infty, Z \sim Norm(0,1)$$
+
+Applies to mean
+
+```{r}
+set.seed(1)
+x.test.means <- replicate(10000, mean(sample(x, 30, replace = TRUE)))
+h <- hist(x.test.means)
+xx <- seq(0, 20, 0.1)
+lines(xx, dnorm(xx, mean=mean(x.test.means), sd=sd(x.test.means)) * length(x.test.means) * diff(h$mids[1:2]), col="red")
+qqnorm(x.test.means)
+qqline(x.test.means, lty=2)
+quantile(x.test.means, c(0.025, 0.975)) # 95%
+```
+
+
+
+Variance
+
+```{r}
+x.test.vars <- replicate(10000, var(sample(x, 30, replace = TRUE)))
+h <- hist(x.test.vars)
+xx <- seq(0, 50, 0.1)
+xx.scale <- length(x.test.vars) * diff(h$mids[1:2])
+lines(xx, dnorm(xx, mean=mean(x.test.vars), sd=sd(x.test.vars)) * xx.scale, col="red" )
+lines(xx, dchisq(xx, 29)  * xx.scale, col="blue", lty=2)
+
+qqnorm(x.test.vars)
+qqline(x.test.vars, lty=2)
+qqplot(qchisq(seq(0, 1, length=length(x.test.vars)), 29), x.test.vars)
+qqline(x.test.vars, distribution = function(p) qchisq(p, 29), prob = c(0.1, 0.9), lty=2)
+quantile(x.test.vars, c(0.025, 0.975)) # 95%
+```
+
+Median
+
+```{r}
+x.test.median <- replicate(10000, median(sample(x, 30, replace = TRUE)))
+h <- hist(x.test.median, freq = FALSE, main = "")
+xx <- density(x.test.median)
+lines(xx$x, xx$y, col="red")
+qqnorm(x.test.median)
+quantile(x.test.median, c(0.025, 0.5, 0.975)) # 95%
+```
+
+##Standart Error of the Mean (SEM)
+
+x.mean +/- sem
+
+```{r}
+(x.mean.sem <- sqrt(x.var / n))
+```
+
+Z-Statistic
+
+```{r}
+x1 <- sample(x, 30)
+x1.mean <- mean(x1) # sample mean
+(x1.mean.sem <- sqrt(x.var / 30)) # sd(x) / sqrt(30)
+(Z <- (x1.mean - x.mean) / x1.mean.sem)
+1 - pnorm(Z) # p-value
+```
+
+```{r}
+alpha <- 0.05 # 1 - 0.95
+(p <- 1 - (alpha / 2))
+qnorm(p)
+# z-stat confidence interval
+c(x1.mean - qnorm(p) * x1.mean.sem, x1.mean, x1.mean + qnorm(p) * x1.mean.sem)
+```
+
+##Confidence Interval
+
+x.mean +/- ci (95% CI, n = 50)
+
+```{r}
+alpha <- 0.05 # 1 - 0.95
+(p <- 1 - (alpha / 2))
+qt(p, n - 1) * x.mean.sem
+qnorm(p) * x.mean.sem
+(qnorm(p))
+c(x.mean - qt(p, n - 1) * x.mean.sem, x.mean, x.mean + qt(p, n - 1) * x.mean.sem)
+```
+
+Variance
+
+```{r}
+c((n - 1) * x.var / qchisq(0.975, n - 1), x.var, (n - 1) * x.var / qchisq(0.025, n - 1))
+```
+
+
+## Variance Test (f-test)
+
+```{r}
+alpha <- 0.05 # 1 - 0.95
+p <- 1 - (alpha / 2)
+
+sn <- 30
+df.sn <- sn - 1
+x.s1 <- sample(x, sn)
+x.s2 <- sample(x, sn)
+
+(x.s1.var <- var(x.s1))
+(x.s2.var <- var(x.s2))
+
+temp <- c(x.s1.var, x.s2.var)
+(f.ratio <- max(temp) / min(temp))
+(p.value <- 2 * (1 - pf(f.ratio, df.sn, df.sn))) # two tailed
+
+var.test(x.s1, x.s2)
+```
+
+More than two groups:
+
+```{r}
+x.s3 <- sample(x, sn)
+
+bartlett.test(c(x.s1, x.s2, x.s3) ~ gl(3, sn))
+```
+
+Robust variance test:
+
+```{r}
+fligner.test(c(x.s1, x.s2) ~ gl(2, sn))
+```
+
+
+## Mean Test (t-test)
+
+z = tstat = (m1 - m2) / sem (under CLT this in nomral mean=0, sd=1)
+
+```{r}
+boxplot(c(x.s1, x.s2) ~ rep(c("x.s1", "x.s2"), each=sn))
+abline(h=mean(x.s1), col="red", lty=3)
+abline(h=mean(x.s2), col="blue", lty=3)
+```
+
+Two-sample t-test:
+
+```{r}
+(tstat <- (mean(x.s1) - mean(x.s2)) / sqrt(var(x.s1) / sn + var(x.s2) / sn)) # assuming independence
+(p.value.z <- 1 - pnorm(abs(tstat)) + pnorm(-abs(tstat))) # 2 * pnorm(-abs(tstat))
+(p.value.t <- 1 - pt(abs(tstat), sn - 2) + pt(-abs(tstat), sn - 2))
+
+t.test(x.s1, x.s2, var.equal = TRUE) # add paired=TRUE for paired
+t.test(x.s1, x.s2, var.equal = FALSE) # better, default
+```
+
+Robust mean tests
+
+```{r}
+wilcox.test(x.s1, x.s2)
+```
+
+Binomial sign test
+```{r}
+d <- x.s1 - x.s2
+binom.test(sum(d > 0), length(d)) # p = 0.5
+```
+
+One sample t-test
+
+```{r}
+t.test(x.s1, mu=x.mean)
+wilcox.test(x.s1, mu=x.mean)
+```
+
+##Analysis of Variance (ANOVA)
+
+```{r}
+rbind(tapply(c(x.s1, x.s2, x.s3), gl(3, sn), mean),
+tapply(c(x.s1, x.s2, x.s3), gl(3, sn), sd),
+tapply(c(x.s1, x.s2, x.s3), gl(3, sn), length))
+```
+
+Manual (one-way) ANOVA for x.s1, x.s2
+
+```{r}
+k <- 2 # groups
+N <- length(x.s1) + length(x.s2) # total
+Y <- c(x.s1, x.s2)
+x.s1.mean <- mean(x.s1)
+x.s2.mean <- mean(x.s2)
+ssw1 <- sum((x.s1 - x.s1.mean) ^ 2)
+ssw2 <- sum((x.s2 - x.s2.mean) ^ 2)
+(ssw <- ssw1 + ssw2) # ss of differenced within groups, aka: sse (error, residual variation)
+x.pool.mean <- mean(Y)
+ssb1 <- sum((x.s1.mean - x.pool.mean) ^ 2)
+ssb2 <- sum((x.s2.mean - x.pool.mean) ^ 2)
+(ssb <- ssb1 + ssb2) # ss of differences between groups, ssa (treatment, model variation)
+(sst <- ssb + ssw) # aka: ssy (total)
+sum((Y - x.pool.mean)^ 2) # sst: sum( (y - mean(y)) ^ 2 )
+
+# normalized ss (mean sum of squares)
+(msw <- ssw / (N - k)) # df
+(msb <- ssb / (k - 1)) # df
+# msb estimate of pooled variance (!= if group mean difference effect)
+# msw estimate of pooled variance from group variances
+# variance f-test
+(F <- msb / msw)
+(PF <- 1 - pf(F, k - 1, N - k)) # Pr(>F), one-sided variance f-test
+```
+
+```{r}
+a <- rbind(c(k - 1, ssb, msb, F, PF), 
+      c(N - k, ssw, msw, 0, 0),
+      c(N - 1, sst, 0, 0, 0)) # 0s added to get same length
+rownames(a) <- c("model (b)", "error (w)", "total (y)")
+colnames(a) <- c("df", "ss", "mss", "f", "pf")
+a
+```
+
+
+```{r}
+var(Y) # mss
+```
+
+###One-way ANOVA
+
+```{r}
+library(car)
+leveneTest(c(x.s1, x.s2) ~ gl(2, sn)) # homogenious group variance test
+```
+
+```{r}
+#Difference between groups (gl), and difference within groups (Residuals)
+anova(lm(c(x.s1, x.s2) ~ gl(2, sn)))
+anova(lm(c(x.s1, x.s2, x.s3) ~ gl(3, sn)))
+```
+
+Two-group comparisons (p-value table)
+
+```{r}
+pairwise.t.test(c(x.s1, x.s2, x.s3), gl(3, sn), p.adj="bonferroni")
+# not using same varince
+pairwise.t.test(c(x.s1, x.s2, x.s3), gl(3, sn), pool.sd=FALSE)
+```
+
+Non equal variance assumption
+
+```{r}
+oneway.test(c(x.s1, x.s2, x.s3) ~ gl(3, sn))
+```
+
+Robust
+
+```{r}
+kruskal.test(c(x.s1, x.s2, x.s3) ~ gl(3, sn))
+# for two way anova see friedman.test
+```
+
+
+##Power
+
+TypeII: P(acceptH0 | H0.False) = $\beta$, TypeI: P(rejectH0 | H0.True) = $\alpha$, Power = 1 - $\beta$ = P(rejectH0 | H0.False)
+
+```{r}
+reject <- function(sn, alpha) {
+  x.s1 <- sample(x, sn)
+  x.s2 <- sample(x, sn)
+  p.value <- t.test(x.s1, x.s2, var.equal = TRUE)$p.value
+  !(p.value < alpha) # reject null wrong
+}
+
+reject1000 <- function(sn, alpha) {
+  mean(replicate(1000, reject(sn, alpha))) # prob. of rejecting null
+}
+
+power <- seq(5, 40, 5)
+plot(power, sapply(power, reject1000, 0.05), type="b", xlab="sample size", ylab="power")
+lines(power, sapply(power, reject1000, 0.01), type="b", col="gray")
+abline(v=30, col="gray")
+text(c(5, 5), c(0.963, 0.99),
+     c(expression(paste(alpha," = 0.05")), 
+       expression(paste(alpha," = 0.01"))), 
+     cex = .8, col="blue", pos=4)
+```
+
+Parametric simulation
+
+```{r}
+data <- rnorm(1000, mean=0, sd=1) # rnorm(100, mean=x.mean, sd=x.sd)
+data <- (data - mean(data)) / sd(data)
+data <- x.mean + data * x.sd
+
+mean(data)
+sd(data)
+
+reject <- function(sn, alpha) {
+  x.s1 <- sample(x, sn)
+  x.s2 <- sample(data, sn)
+  p.value <- t.test(x.s1, x.s2, var.equal = TRUE)$p.value
+  !(p.value < alpha) # reject null wrong
+}
+
+reject1000 <- function(sn, alpha) {
+  mean(replicate(1000, reject(sn, alpha)))
+}
+
+power <- seq(5, 40, 5)
+plot(power, sapply(power, reject1000, 0.05), type="b", xlab="sample size", ylab="power")
+abline(v=30, col="gray")
+```
+
+```{r}
+power.t.test(delta=5, sd=x.sd, power=0.8) # delta = mean(x1) - mean(x2)
+```
+
+
+Binomial - probability of having at least one fast car in the sample size
+
+```{r}
+(prob.fast.car <- sum(x > 1.2 * x.mean) / n)
+fb <- function(s) { 1 - pbinom(1, s, prob.fast.car) }
+plot(1:n, sapply(1:n, fb), 
+     xlab="sample size", ylab="prob of >= 1 fast car", pch=3)
+abline(h=0.8, v=9, col="gray")
+
+# with 95% confidence for a sample size of 9 we get [a,b] cars (mean = 9 * prob.fast.car)
+c(qbinom(.025, 9, prob.fast.car), qbinom(.975, 9, prob.fast.car))
+```
+Verify
+```{r}
+sum(replicate(100, sum(sample(x, 9) > 1.2 * x.mean))) / 100 # 100 experiments
+```
+
+Approximation
+
+```{r}
+approx <- function(k1, k2, N, p) {
+  a <- (k1 - N * p) / sqrt(N * p * (1 - p))
+  b <- (k2 - N * p) / sqrt(N * p * (1 - p))
+  pnorm(b) - pnorm(a)
+}
+dbinom(1, 30, 0.3)
+approx(1 - 0.5, 1 + 0.5, 30, 0.3) # normal
+dpois(2, 30 * 0.3) #poisson
+```
+
+##Association Test
+
+```{r, echo=FALSE}
+gcars <- cars[sample(1:n, 30), ]
+```
+
+```{r}
+gcars <- cars[sample(1:n, 30), ]
+#dist,speed
+gcars[gcars$dist < mean(gcars$dist) & gcars$speed < mean(gcars$speed), "group"] = "LL"
+gcars[gcars$dist < mean(gcars$dist) & gcars$speed >= mean(gcars$speed), "group"] = "LH"
+gcars[gcars$dist >= mean(gcars$dist) & gcars$speed < mean(gcars$speed), "group"] = "HL"
+gcars[gcars$dist >= mean(gcars$dist) & gcars$speed >= mean(gcars$speed), "group"] = "HH"
+
+plot(gcars$speed, gcars$dist, col=as.factor(gcars$group), ylab="dist: L,H", xlab="speed: L,H")
+abline(h=mean(gcars$dist), v=mean(gcars$speed), col="gray")
+
+stripchart(gcars$dist ~ gcars$group, data=gcars, vertical=TRUE, method="jitter", col=c(4,2,3,1))
+
+gcars$group <- as.factor(gcars$group)
+pairs(gcars, gap=0)
+
+m <- matrix(unlist(rev(table(gcars$group))), 2, 2, byrow=TRUE)
+colnames(m) <- c("speed.low", "speed.high")
+rownames(m) <- c("dist.low", "dist.high")
+# m contingency table r x c
+(ma <- addmargins(m)) # rowSums(m), colSums(m), sum(m)
+
+prop.table(m)
+```
+
+significace in differences: chi-square = sum((observed - estimated) ^ 2 / estimated), observed = R x C / G, where G = 30, df = (n - 1) * (c - 1) 
+
+```{r}
+(csr <- chisq.test(m))
+qchisq(0.95, 1) # reject null if X-squared >, then (dist, speed are dependent)
+str(csr)
+((csr$observed - csr$expected) ^ 2) / csr$expected
+```
+
+If one of expected frequencies < 5
+
+```{r}
+# first column success, second colum failure
+fisher.test(m)
+```
+
+##Correlation & Regression
+
+```{r}
+var(x, y)
+(var(x) + var(y) - var(x - y)) / 2
+cov(x, y)
+mean( (y - mean(y)) * (x - mean(x)) ) # cov
+
+#variance-covariance matrix
+var(cars)
+```
+
+Correlation
+
+```{r}
+sum((x - mean(x)) * (y - mean(y))) / sqrt( sum((y - mean(y))^2) * sum((x - mean(x))^2))
+var(x, y) / sqrt(var(x) * var(y))
+
+cor(x, y)
+cor(x, y, method="spearman") # using quantiles
+cor.test(x, y)
+```
+
+Regression ($Y$, $\epsilon$ are normally distributed)
+
+$y = a + bx (+ \epsilon)$
+
+```{r}
+(model <- lm(y ~ x))
+(smodel <- summary(model))
+(a <- anova(model))
+```
+
+Manual calculation of some of the model summary values
+
+```{r}
+# 1. Residual standard error: sd = sqrt(var)
+deviance(model)
+sqrt(a["Mean Sq"]["Residuals", ])
+# 2. Multiple R-squared (proportion of sst explained by regresion line) = coeficiend of determination
+sst <- a["Sum Sq"]["x", ] + a["Sum Sq"]["Residuals", ]
+a["Sum Sq"]["x", ] / sst
+# 3. Adjusted R-squared (relative improvement of residual variance)
+df <- a["Df"]["x", ] + a["Df"]["Residuals", ]
+v <- sst / df # variance
+(v - a["Mean Sq"]["Residuals", ]) / v
+# 4. t-value
+(tv <- smodel$coef["(Intercept)", "Estimate"] / smodel$coef["(Intercept)", "Std. Error"])
+# 5. Pr(>|t|)
+2 * (1 - pt(abs(smodel$coef["(Intercept)", "t value"]), df.residual(model)))
+# F value
+smodel$coef["x", "t value"] ^ 2
+a["Mean Sq"]["x", ] / a["Mean Sq"]["Residuals", ]
+# 6. cor. coeficient
+sqrt(smodel$r.squared)
+```
+
+Plot
+
+```{r}
+plot(y ~ x, col=x, xlab="x speed (mph)", ylab="y stop distance (ft)")
+abline(v=mean(x), h=mean(y), col="gray", lty=2)
+
+abline(lm(y ~ x))
+abline(lm(y ~ x, subset=(y < 100)), lty=2) # remove outlier
+lines(x, predict(lm(y ~ x + I(x^2) + I(x^3)), list(x=x)), col="green", lty=3)
+lines(lowess(x, y), col="blue", lty=3)
+```
+
+Grouped cars
+
+```{r}
+coplot(gcars$dist ~ gcars$speed | gcars$group, panel=panel.smooth, rows=1)
+```
+
+```{r}
+model1 <- lm(dist ~ speed, data=gcars)
+model2 <- lm(dist ~ group, data=gcars)
+model3 <- lm(dist ~ speed + group, data=gcars)
+model4 <- lm(dist ~ speed * group, data=gcars)
+anova(model1, model2, model3, model4) # RSS - residual ss
+```
+
+```{r}
+stripchart(gcars$dist ~ gcars$group, data=gcars, vertical=TRUE, method="jitter", col=c(4,2,3,1))
+suppressWarnings(abline(lm(dist ~ group, data=gcars)))
+lines(1:length(levels(gcars$group)), tapply(gcars$dist, gcars$group, mean), type="b", pch=4, lty=2, lwd=2, col="gray")
+```
+
+
+##Confounding
+
+Observed correlation of X and Y that is strictly depending on an extraneous variable Z (easy major in admissions example)
+
+```{r}
+d <- as.data.frame(UCBAdmissions)
+a <- data.frame(Major = rep(LETTERS[1:6], 2), Gender = gl(2,6, labels=1:0), Number = 0, Percent = 0, NumberAccepted = 0, NumberRejected = 0)
+for(G in 1:0) {
+  for(M in LETTERS[1:6]) {
+    m <- d[d$Gender == ifelse(G == 1, "Male", "Female"), ]
+    s <- sum(m[m$Dept == M, "Freq"])
+    ac <- m[m$Dept == M & m$Admit == "Admitted", "Freq"]
+    rj <- m[m$Dept == M & m$Admit == "Rejected", "Freq"]
+    a[a$Major == M & a$Gender == G, "Number"] <- s
+    a[a$Major == M & a$Gender == G, "NumberAccepted"] <- ac
+    a[a$Major == M & a$Gender == G, "NumberRejected"] <- rj  
+    a[a$Major == M & a$Gender == G, "Percent"] = round(ac * 100 / s)
+  }
+}
+a
+
+index <- a$Gender==1
+men <- a[index,]
+women <- a[!index,]
+menTotal <- sum(men$Number)
+womenTotal <- sum(women$Number)
+menYes <- sum(men$NumberAccepted)
+menNo <- sum(men$NumberRejected)
+womenYes <- sum(women$NumberAccepted)
+womenNo <- sum(women$NumberRejected)
+
+barplot(c(menYes / menTotal, womenYes / womenTotal), 
+        names.arg=c("Male", "Female"), main="Total % Accepted", col=c("black", "gray"))
+
+tab <- matrix(c(menYes, womenYes, menNo, womenNo), 2, 2)
+chisq.test(tab)$p.val # reject null
+
+#Simpson's paradox
+stratified <- sapply(LETTERS[1:6], function(major){
+  men <- a[index & a$Major == major,]
+  women <- a[!index & a$Major == major,]
+  m <- sum(men$NumberAccepted) / sum(men$Number)
+  w <- sum(women$NumberAccepted) / sum(women$Number)
+  t <- sum(a[a$Major == major,]$NumberAccepted) / sum(a[a$Major == major,]$Number)
+  c(m,w,t)
+})
+
+barplot(stratified, beside=TRUE, col=c("black", "gray", "white"), main="% Accepted by Major")
+legend("topright",c("Male","Female", "Total"), pt.bg=c("black", "gray", "white"), pch=22, box.lty=0, cex=0.75)
+```
+
+```{r}
+tt <- as.data.frame(tapply(a$Percent, list(a$Major, a$Gender), sum))
+tt$most <- ifelse(tt[,2] > tt[,1], 0, 1)
+tt
+```
+
+```{r}
+stratified <- sapply(LETTERS[1:6], function(major){
+  men <- a[index & a$Major == major,]
+  women <- a[!index & a$Major == major,]
+  c(sum(men$NumberAccepted), sum(men$Number),
+    sum(women$NumberAccepted), sum(women$Number),
+    sum(a[a$Major == major,]$NumberAccepted),
+    sum(a[a$Major == major,]$Number)
+    )
+})
+
+barplot(stratified, beside=TRUE, col=gray(0:5/5), main="Totals by Major", ylim=c(0, 1200))
+legend("topright",c("Male+", "Male", "Female+","Female", "Total+", "Total"), pt.bg=gray(0:5/5), pch=22, box.lty=0, cex=0.75)
+
+library(RColorBrewer)
+plot(men$Number, men$NumberAccepted, col="blue", ylim=c(0,550), xlim=c(0,900), xlab="Applied", ylab="Accepted", pch=2)
+points(women$Number, women$NumberAccepted, col="red", pch=21)
+legend("topleft",c("Male", "Female"), col=c("blue", "red"), pch=c(2, 21), cex=0.75)
+abline(lm(men$NumberAccepted ~ men$Number), col="blue", lty=3)
+abline(lm(women$NumberAccepted ~ women$Number), col="red", lty=3)
+cc <- colorRampPalette(brewer.pal(6, "Dark2"))(6) #c(1,3,5,6,7,8)
+text(men$Number, men$NumberAccepted, paste(men$Major, men$Percent, "%"), pos=3, col=cc, cex=0.7)
+text(women$Number, women$NumberAccepted, paste(women$Major, women$Percent, "%"), pos=1, col=cc, cex=0.7)
+```
+
+
+**EOF**
