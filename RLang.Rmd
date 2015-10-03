@@ -1,0 +1,440 @@
+---
+title: "R Language Quirks"
+output: 
+  html_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Enviroment
+
+*Environments consist of a frame, or collection of named objects, and a pointer to an enclosing environment.*
+
+Default environment frame is `R_GlobalEnv`. Top one is `R_EmptyEnv` that cannot have parents or data.
+
+```{r}
+#?environment
+environment()
+globalenv()
+environmentName(environment())
+
+search()
+
+e <- environment()
+while(environmentName(e) != "R_EmptyEnv") {
+  print(environmentName(e))
+  e <- parent.env(e)
+}
+print(environmentName(e))
+```
+
+Functions get their own environment frame, blocks not.
+
+```{r}
+f <- function() {
+  print("new frame")
+  e <- environment()
+  print(e)
+  print(parent.env(e))
+  print(parent.frame())
+  if(TRUE) {
+    print("same frame")
+    print(environment())
+  }
+  {
+    print("same frame")
+    print(environment())
+  }
+  f2 <- function() {
+    print("another new frame")
+    print(environment())
+    print(parent.env(environment()))
+  }
+  f2()
+}
+f()
+environment(f);
+```
+
+Parent enviroment scope is lexical:
+
+```{r}
+f <- function() {
+  print("same parent")
+  e <- environment()
+  print(e)
+  print(parent.env(e))
+  print("frames")
+}
+
+f2 <- function() {
+  f()
+  f3 <- function () {
+    print("nested")
+    f()
+  }
+  f3()
+}
+f2()
+
+```
+
+This affect closures:
+
+```{r}
+v <- "A";
+f <- function() {
+  print(v)
+}
+f2 <- function() {
+  print("prints A:")
+  f();
+  v <- "C"
+  print("prints A again:")
+  f();
+}
+
+
+f()
+f2()
+
+v <- "B"
+f()
+print("now prints A is really B")
+f2()
+
+```
+
+Hence, currying in best done using nested functions:
+
+```{r}
+a <- 1
+b <- 2
+bind <- function(a, b) {
+  function(x) {
+    (a + b) * x
+  }
+}
+
+bound1 <- bind(2,3);
+bound1(1)
+bound2 <- bind(3, 3);
+bound2(1)
+bound1(1)
+```
+
+
+The `<<-` operator will set or create (top) a parent frame variable:
+
+```{r}
+f <- function() {
+  a <- "a"
+  b <<- "b"
+}
+f()
+ls()
+rm(list = ls())
+ls()
+```
+
+Environments can be created:
+
+```{r}
+e <- new.env()
+print(e)
+print(parent.env(e))
+assign('a', 1, envir=e)
+exists('a', envir = e)
+exists('a')
+get('a', envir = e)
+#?with # ads a temp top frame from data
+```
+
+##Lazy Evaluation
+
+```{r}
+action <- function(a) { print(a); return(a) }
+
+ifelse(TRUE, action(1), action(2))
+```
+
+Function arguments are evalued first when used:
+
+```{r}
+gmean <- function(x, p, n = length(x), w = rep(1/n, n)) 
+  as.vector(if(p == 0) prod(sapply(1:n, function(i) { x[i] ^ w[i] })) ^ (1 / sum(w)) 
+  else (crossprod(w, x ^ p) / sum(w)) ^ (1 / p))
+
+gmean(1:10, 0) #geometric mean
+gmean(1:10, 1) #arithmetic mean
+```
+
+Not used vars are ignored:
+
+```{r}
+rm(list = ls())
+f <- function(a, b) {
+  print(a)
+}
+f(3)
+```
+
+`switch` is therefore a function:
+
+```{r}
+action <- function(a) { print(a); return(a) }
+switch(2, action(1), action(2), action(3))
+```
+
+##Return is a Function
+
+```{r}
+f <- function() {
+  return(3 + ifelse(TRUE, return(sqrt(4)), return(sqrt(9))))
+}
+f()
+```
+
+
+##Operators
+
+Binary operators are infix functions:
+
+```{r}
+2 * 3 - 1
+`-`(`*`(2, 3), 1)
+```
+
+Custom operators:
+
+```{r}
+`%aha%` <- function(l, r) {
+  rep(l, r)
+}
+
+2 %aha% 3
+
+`%aha%`(2, 3)
+
+1 %aha% 2 %aha% 3
+```
+
+##Data Types
+
+Vectors (of constants):
+
+```{r}
+(a <- 5)
+length(a)
+dim(a)
+names(a)
+names(a) <- c('A') 
+names(a)
+str(a)
+(a <- 1:15)
+dim(a) <- c(3, 5)
+dim(a)
+nrow(a)
+ncol(a)
+typeof(a)
+# now this one makes a list!
+(a <- c(function(){ print("a") }, function(){ print("b") }))
+a[[1]]()
+typeof(a)
+```
+
+Pairwise vector operators
+
+```{r}
+x <- 1:10
+y <- 2:11
+x + y
+```
+
+##Attributes
+
+```{r}
+a <- 1:5
+str(a)
+attr(a, "aha") <- "vvv"
+attr(a, "aha")
+
+(a <- 1:15)
+dim(a) <- c(3, 5)
+a
+dim(a)
+attributes(a)
+attributes(a) <- NULL
+dim(a)
+a
+
+m <- matrix(1:15, nrow=3, ncol=5)
+class(m)
+attr(m, "class")
+attributes(m)
+```
+
+
+##Objects and Classes
+
+* http://www.programiz.com/r-programming/object-class-introduction
+* http://adv-r.had.co.nz/OO-essentials.html
+
+###S3 Objects
+
+S3 objects are list objects with `class` attribute set:
+
+```{r}
+p <- list(x=3, y=4)
+class(p) <- "point"
+class(p)
+attr(p, "class")
+p$x
+p$y
+```
+
+A S3 constructor function:
+
+```{r}
+point <- function(x, y) {
+  o <- list(x=x, y=y)
+  attr(o, "class") <- "point"
+  o
+}
+
+p <- point(3, 4)
+class(p)
+attr(p, "class")
+```
+
+Methods:
+
+```{r}
+#methods(print)
+#methods(class="default")
+
+print(p) #no specialization
+
+print.point <- function(p) {
+  print(paste(p$x, p$y))
+}
+
+print(p)
+```
+
+Custom generic methods:
+
+```{r}
+aha <- function(o) {
+  UseMethod("aha")
+}
+
+aha.point <- function(p) {
+  print("aha point")
+}
+
+aha.default <- function(p) {
+  print("aha default")
+}
+
+aha(p)
+a <- 3
+aha(3)
+p
+#print.aha
+#summary.aha
+#plot.aha
+
+plot.aha <- function(p, ...) {
+  plot(p$x, p$y, ...)
+}
+plot(p, pch=20, col=4)
+```
+
+###S4 classes
+
+```{r}
+point <- setClass("point", slots=list(x="numeric", y="numeric"))
+p <- new("point", x=3, y=4)
+p
+attributes(p)
+str(p)
+isS4(p)
+p@x
+p@y
+p <- point(x=3, y=5)
+p@y
+p@y <- 6
+slot(p, "y") <- 6
+show(p)
+```
+
+S4 methods:
+
+```{r}
+#showMethods()
+isS4(show)
+#showMethods(show)
+
+setMethod("show", "point", function(object) {
+  print(paste(object@x, object@y))
+})
+
+show(p)
+```
+
+###Reference class (RC)
+
+```{r}
+rpoint <- setRefClass("rpoint", 
+          fields=list(x="numeric", y="numeric"),
+          methods=list(
+            add = function(other) {
+              x <<- other + x
+              y <<- other + y
+            },
+            move = function(k) {
+              x <<- k * x
+              y <<- k * y
+            },
+            show = function() {
+              print(paste(x, y))
+            }
+          ))
+
+p <- rpoint(x=4, y=5)
+show(p)
+p$move(3)
+p$x
+p$y
+```
+
+RC objects are by reference:
+
+```{r}
+p <- point(x=3, y=5)
+rp <-rpoint(x=4, y=5)
+
+modify <- function (p) {
+  p@x <- 6
+}
+rmodify <- function (p) {
+  p$x <- 6
+}
+
+p
+modify(p)
+p
+
+rp
+rmodify(rp)
+rp
+```
+
+**EOF**
+
+
+
