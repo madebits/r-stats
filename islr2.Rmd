@@ -798,4 +798,4 @@ or we can use our group membership as labels for the leaves of the dendrogram:
 plot(hc.complete,labels=which)
 ```
  
-
+**EOF**
